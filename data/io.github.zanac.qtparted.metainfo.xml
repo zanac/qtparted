@@ -6,6 +6,10 @@
   <name>QtParted</name>
   <summary>Partition editor for Qt 6</summary>
   <summary xml:lang="it">Editor di partizioni per Qt 6</summary>
+  <summary xml:lang="de">Partitionseditor für Qt 6</summary>
+  <summary xml:lang="fr">Éditeur de partitions pour Qt 6</summary>
+  <summary xml:lang="pt">Editor de partições para Qt 6</summary>
+  <summary xml:lang="pt_BR">Editor de partições para Qt 6</summary>
   <developer id="io.github.zanac">
     <name>Vanni Brutto</name>
   </developer>

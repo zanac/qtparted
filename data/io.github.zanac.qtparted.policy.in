@@ -10,8 +10,16 @@
   <action id="io.github.zanac.qtparted">
     <description>Run QtParted as root</description>
     <description xml:lang="it">Eseguire QtParted come root</description>
+    <description xml:lang="de">QtParted als root ausführen</description>
+    <description xml:lang="fr">Exécuter QtParted en tant que root</description>
+    <description xml:lang="pt">Executar o QtParted como root</description>
+    <description xml:lang="pt_BR">Executar o QtParted como root</description>
     <message>Authentication is required to run the partition editor QtParted</message>
     <message xml:lang="it">È richiesta l'autenticazione per eseguire l'editor di partizioni QtParted</message>
+    <message xml:lang="de">Zum Ausführen des Partitionseditors QtParted ist eine Authentifizierung erforderlich</message>
+    <message xml:lang="fr">Une authentification est nécessaire pour exécuter l'éditeur de partitions QtParted</message>
+    <message xml:lang="pt">É necessária autenticação para executar o editor de partições QtParted</message>
+    <message xml:lang="pt_BR">É necessária autenticação para executar o editor de partições QtParted</message>
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>

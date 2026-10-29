@@ -1,11 +1,32 @@
 # QtParted
 
+<p align="center">
+  <img src="data/icons/qtparted-64.png" alt="QtParted" width="64">
+</p>
+
+<h2 align="center">24 years in the making: QtParted 1.0 is finally here.</h2>
+
+<p align="center">
+  <b>Started in 2002. Previous release, 0.6.0, in 2012. And now, after more than twenty years,
+  the 1.0 — rebuilt from scratch for Qt 6.</b>
+</p>
+
+<p align="center">
+  <a href="https://github.com/zanac/qtparted/releases/latest"><img src="https://img.shields.io/github/v/release/zanac/qtparted?label=download&color=2e7d32" alt="Download"></a>
+  <a href="https://github.com/zanac/qtparted/actions/workflows/ci.yml"><img src="https://github.com/zanac/qtparted/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/license-GPL--2.0--or--later-blue" alt="License: GPL v2+">
+  <img src="https://img.shields.io/badge/Qt-6.4%2B-41cd52" alt="Qt 6">
+  <img src="https://img.shields.io/badge/languages-EN%20%C2%B7%20IT%20%C2%B7%20DE%20%C2%B7%20FR%20%C2%B7%20PT%20%C2%B7%20PT--BR-informational" alt="Languages">
+</p>
+
+The partition editor that started on Qt 3 is back: resize and move partitions,
+copy them, open and resize LUKS encrypted volumes, all planned on screen and
+written to disk only when you say so. Same name, same spirit of a light editor that
+fits on a rescue disk, with a new core built on two decades of
+[GParted](https://gparted.org) experience.
+
 **A partition editor for Qt 6. It plans every change on screen first and writes
 nothing to disk until you apply it.**
-
-[![CI](https://github.com/zanac/qtparted/actions/workflows/ci.yml/badge.svg)](https://github.com/zanac/qtparted/actions/workflows/ci.yml)
-![License: GPL v2+](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)
-![Qt 6](https://img.shields.io/badge/Qt-6.4%2B-41cd52)
 
 QtParted creates, deletes, resizes, moves, copies, checks and formats disk
 partitions. It also opens and resizes LUKS encrypted volumes, mounts file
