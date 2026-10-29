@@ -10,7 +10,9 @@ is a graphical partition editor. It shows the partitions of the disks of the
 system, lets the user queue changes (create partition tables, create, delete,
 format, resize, move, copy and check partitions, set flags, partition names,
 file system labels and UUIDs) and applies them in one
-go, with a detailed log of every step.
+go, with a detailed log of every step.  It also opens, closes and resizes LUKS
+encrypted partitions, mounts and unmounts file systems, turns swap on and off
+and activates LVM Volume Groups; these actions are applied immediately.
 .PP
 The
 .B qtparted

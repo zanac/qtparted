@@ -14,6 +14,8 @@
 
 #include "Luks.h"
 
+#include <algorithm>
+
 #include "Command.h"
 #include "OperationDetail.h"
 
@@ -248,6 +250,40 @@ void nilfs2Usage(Partition &p)
     const qint64 blockSize = scan(r.output, QStringLiteral("^Block size:\\s*(\\d+)"));
     if (deviceSize > -1 && freeBlocks > -1 && blockSize > -1) {
         p.setUsage(deviceSize / p.sectorSize, freeBlocks * blockSize / p.sectorSize);
+        p.fsBlockSize = blockSize;
+    }
+}
+
+void reiserfsUsage(Partition &p)
+{
+    // Port of reiserfs::set_used_sectors().
+    const CommandResult r = runCommand(QStringLiteral("debugreiserfs"), { p.path });
+    if (!r.ok()) {
+        addToolMessages(p, r);
+        return;
+    }
+    const qint64 blocks = scan(r.output, QStringLiteral("^Count of blocks on the device:\\s*(\\d+)"));
+    const qint64 blockSize = scan(r.output, QStringLiteral("^Blocksize:\\s*(\\d+)"));
+    const qint64 freeBlocks = scan(r.output, QStringLiteral("^Free blocks[^:]*:\\s*(\\d+)"));
+    if (blocks > -1 && blockSize > -1 && freeBlocks > -1) {
+        p.setUsage(blocks * blockSize / p.sectorSize, freeBlocks * blockSize / p.sectorSize);
+        p.fsBlockSize = blockSize;
+    }
+}
+
+void reiser4Usage(Partition &p)
+{
+    // Port of reiser4::set_used_sectors().
+    const CommandResult r = runCommand(QStringLiteral("debugfs.reiser4"), { p.path });
+    if (!r.ok()) {
+        addToolMessages(p, r);
+        return;
+    }
+    const qint64 blocks = scan(r.output, QStringLiteral("^blocks:\\s*(\\d+)"));
+    const qint64 freeBlocks = scan(r.output, QStringLiteral("^free blocks:\\s*(\\d+)"));
+    const qint64 blockSize = scan(r.output, QStringLiteral("^blksize:\\s*(\\d+)"));
+    if (blocks > -1 && freeBlocks > -1 && blockSize > -1) {
+        p.setUsage(blocks * blockSize / p.sectorSize, freeBlocks * blockSize / p.sectorSize);
         p.fsBlockSize = blockSize;
     }
 }
@@ -690,6 +726,8 @@ FileSystemRegistry::FileSystemRegistry()
             return QStringList{ QStringLiteral("--force"), QStringLiteral("--yes"), QStringLiteral("--label"),
                                 p.fsLabel, p.path };
         };
+        d.usagePrograms = { QStringLiteral("debugfs.reiser4") };
+        d.readUsage = reiser4Usage;
         d.software = QStringLiteral("reiser4progs");
         add(std::move(d));
     }
@@ -702,6 +740,8 @@ FileSystemRegistry::FileSystemRegistry()
                                 p.fsLabel, p.path };
         };
         d.limits.minSize = 34 * MiB;
+        d.usagePrograms = { QStringLiteral("debugreiserfs") };
+        d.readUsage = reiserfsUsage;
         d.software = QStringLiteral("reiserfsprogs");
         add(std::move(d));
     }
@@ -785,7 +825,11 @@ const FileSystem *FileSystemRegistry::get(FsType type) const
 QList<const FileSystem *> FileSystemRegistry::all() const
 {
     QList<const FileSystem *> list;
-    for (FsType t : creatableFsTypes())
+    QList<FsType> types = creatableFsTypes();
+    if (!types.contains(FsType::Luks))
+        types.append(FsType::Luks);  // supported, not created (yet)
+    std::sort(types.begin(), types.end(), [](FsType a, FsType b) { return fsName(a) < fsName(b); });
+    for (FsType t : types)
         if (const FileSystem *fs = get(t))
             list.append(fs);
     return list;

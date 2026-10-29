@@ -19,11 +19,33 @@
       <li>Create msdos (MBR), GPT and the other partition tables supported by libparted</li>
       <li>Create, delete and format partitions, with MiB or cylinder alignment</li>
       <li>Over 20 file systems: ext2/3/4, btrfs, xfs, f2fs, fat16/32, exfat, ntfs, swap, LVM2 PV and more</li>
+      <li>Resize, move, copy and paste partitions, also growing mounted file systems online</li>
+      <li>Check and repair file systems, set labels and new UUIDs</li>
+      <li>Open, close and resize LUKS encrypted partitions</li>
+      <li>Mount and unmount, swapon and swapoff, activate LVM Volume Groups</li>
       <li>Set partition flags and GPT partition names</li>
       <li>Pending operations can be undone before anything is written</li>
     </ul>
   </description>
   <launchable type="desktop-id">io.github.zanac.qtparted.desktop</launchable>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Partitions of a disk with two pending operations</caption>
+      <image>https://raw.githubusercontent.com/zanac/qtparted/main/doc/screenshots/main.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Resizing and moving a partition</caption>
+      <image>https://raw.githubusercontent.com/zanac/qtparted/main/doc/screenshots/resize-move.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Applying operations with a detailed log</caption>
+      <image>https://raw.githubusercontent.com/zanac/qtparted/main/doc/screenshots/apply.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>An open LUKS encrypted partition</caption>
+      <image>https://raw.githubusercontent.com/zanac/qtparted/main/doc/screenshots/luks-information.png</image>
+    </screenshot>
+  </screenshots>
   <url type="homepage">https://github.com/zanac/qtparted</url>
   <url type="bugtracker">https://github.com/zanac/qtparted/issues</url>
   <content_rating type="oars-1.1"/>
