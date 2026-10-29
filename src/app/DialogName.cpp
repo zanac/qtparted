@@ -19,15 +19,28 @@ namespace QtParted {
 DialogName::DialogName(const Partition &partition, int maxLength, QWidget *parent)
     : QDialog(parent)
 {
-    setWindowTitle(tr("Set partition name on %1").arg(partition.path));
-    m_edit = new QLineEdit(partition.name, this);
-    m_edit->setMaxLength(maxLength);
+    build(tr("Set partition name on %1").arg(partition.path), tr("&Name:"), partition.name, maxLength);
+}
+
+DialogName::DialogName(const QString &title, const QString &field, const QString &value, int maxLength,
+                       QWidget *parent)
+    : QDialog(parent)
+{
+    build(title, field, value, maxLength);
+}
+
+void DialogName::build(const QString &title, const QString &field, const QString &value, int maxLength)
+{
+    setWindowTitle(title);
+    m_edit = new QLineEdit(value, this);
+    if (maxLength > 0)
+        m_edit->setMaxLength(maxLength);
     m_edit->setClearButtonEnabled(true);
     m_edit->selectAll();
     m_edit->setMinimumWidth(m_edit->fontMetrics().averageCharWidth() * 36);
 
     auto *form = new QFormLayout;
-    form->addRow(tr("&Name:"), m_edit);
+    form->addRow(field, m_edit);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);

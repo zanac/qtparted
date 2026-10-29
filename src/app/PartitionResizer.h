@@ -25,6 +25,14 @@ public:
     void setTotal(qint64 totalMiB);
     void setLimits(qint64 minBeforeMiB, qint64 minSizeMiB, qint64 maxSizeMiB);
     void setValues(qint64 beforeMiB, qint64 sizeMiB);
+    // Resize/move: the furthest the start may go, the range the end must stay in,
+    // whether the start is fixed, and the used space to draw.  `usedStartMiB` < 0
+    // draws the used space from the partition start (a file system), otherwise at
+    // that fixed position (the logical partitions of an extended partition).
+    void setMaxBefore(qint64 maxBeforeMiB);
+    void setEndRange(qint64 minEndMiB, qint64 maxEndMiB);
+    void setFixedStart(bool fixed);
+    void setUsed(qint64 usedMiB, qint64 usedStartMiB = -1);
     void setPartitionColor(const QColor &color);
     void setExtendedBackground(bool extended);
 
@@ -52,10 +60,16 @@ private:
     qint64 toMiB(int x) const;
     QRect partitionRect() const;
     Drag hit(const QPoint &pos) const;
-    void apply(qint64 before, qint64 size);
+    void apply(qint64 before, qint64 size, Drag mode);
 
     qint64 m_total = 1;
     qint64 m_minBefore = 0;
+    qint64 m_maxBefore = -1;  // -1: no limit besides the total
+    qint64 m_minEnd = 0;
+    qint64 m_maxEnd = -1;     // -1: the total
+    bool m_fixedStart = false;
+    qint64 m_used = 0;
+    qint64 m_usedStart = -1;
     qint64 m_minSize = 1;
     qint64 m_maxSize = 1;
     qint64 m_before = 0;

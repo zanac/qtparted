@@ -22,9 +22,13 @@ class DialogName : public QDialog
     Q_OBJECT
 public:
     DialogName(const Partition &partition, int maxLength, QWidget *parent = nullptr);
+    // Generic single line editor (file system label).
+    DialogName(const QString &title, const QString &field, const QString &value, int maxLength,
+               QWidget *parent = nullptr);
     QString name() const;
 
 private:
+    void build(const QString &title, const QString &field, const QString &value, int maxLength);
     QLineEdit *m_edit;
 };
 

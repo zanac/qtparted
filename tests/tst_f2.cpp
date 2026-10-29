@@ -115,6 +115,7 @@ private Q_SLOTS:
     void pasteLabelUuidCheck();
     void onlineGrow();
     void extendedResize();
+    void refusesSelfPasteAndStaleOnline();
 
 private:
     bool attach(const QString &image, qint64 bytes);
@@ -513,6 +514,20 @@ void TestF2::pasteLabelUuidCheck()
     QCOMPARE(byNumber(s.devices[0], 2)->fsLabel, QStringLiteral("backup"));
     QCOMPARE(byNumber(s.devices[0], 1)->fsLabel, QStringLiteral("orig"));
     QCOMPARE(readData(part(2)), hash);
+
+    // Paste over the existing (larger) partition #2 after changing #1's data.
+    const QByteArray hash2 = writeData(part(1), 30);
+    s.devices = { scanOne(m_loop) };
+    const Partition src2 = *byNumber(s.devices[0], 1);
+    const Partition dst = *byNumber(s.devices[0], 2);
+    QVERIFY(Session::allowedActions(s.devices[0], &dst, 0, &src2).paste);
+    QVERIFY(s.addOperation(std::make_unique<OperationCopy>(s.devices[0], dst, Layout::pasteIntoExisting(dst, src2), src2)));
+    QVERIFY(applyAll(s));
+    s.devices = { scanOne(m_loop) };
+    QCOMPARE(byNumber(s.devices[0], 2)->start, dst.start);
+    QCOMPARE(byNumber(s.devices[0], 2)->uuid, src2.uuid);
+    QVERIFY(byNumber(s.devices[0], 2)->sectorsUnallocated < Sector(4 * MiB / 512));
+    QCOMPARE(readData(part(2)), hash2);
 }
 
 static bool hasCapability(int cap)
@@ -586,6 +601,41 @@ void TestF2::extendedResize()
     QCOMPARE(ext->start, Sector(51 * MiB / 512));
     QCOMPARE(ext->length(), Sector(700 * MiB / 512));
     QCOMPARE(readData(part(5)), hash);
+}
+
+void TestF2::refusesSelfPasteAndStaleOnline()
+{
+    if (!attach(m_dir.filePath(QStringLiteral("self.img")), 512 * MiB))
+        QSKIP("needs root, losetup and parted");
+    QVERIFY(run(QStringLiteral("parted"), { QStringLiteral("-s"), m_loop, QStringLiteral("mklabel"), QStringLiteral("gpt"),
+                                            QStringLiteral("mkpart"), QStringLiteral("a"), QStringLiteral("1MiB"), QStringLiteral("201MiB") }));
+    Parted::settle();
+    QVERIFY(run(QStringLiteral("mkfs.ext4"), { QStringLiteral("-q"), QStringLiteral("-F"), part(1) }));
+    const QByteArray hash = writeData(part(1), 20);
+    Session s;
+    s.devices = { scanOne(m_loop) };
+    const Partition p = *byNumber(s.devices[0], 1);
+
+    // Paste onto itself under another name (as after a logical renumbering): refused at apply.
+    Partition src = p;
+    src.path = m_loop + QStringLiteral("p1");
+    Partition dst = Layout::pasteIntoExisting(p, src);
+    s.operations.push_back(std::make_unique<OperationCopy>(s.devices[0], p, dst, src));
+    s.operations.back()->createDescription();
+    QVERIFY(!applyAll(s));
+    QCOMPARE(readData(part(1)), hash);
+
+    // Online grow queued while mounted, applied after unmounting: refused.
+    QVERIFY(run(QStringLiteral("mount"), { part(1), m_mnt }));
+    s.devices = { scanOne(m_loop) };
+    QVERIFY(byNumber(s.devices[0], 1)->busy);
+    QVERIFY(queueResizeMove(s, 1, 0, 300));
+    QVERIFY(s.addOperation(std::make_unique<OperationLabel>(s.devices[0], *byNumber(s.devices[0], 1), QStringLiteral("x"))));
+    QVERIFY(run(QStringLiteral("umount"), { m_mnt }));
+    QVERIFY(!applyAll(s));
+    s.devices = { scanOne(m_loop) };
+    QCOMPARE(byNumber(s.devices[0], 1)->length(), Sector(200 * MiB / 512));
+    QCOMPARE(readData(part(1)), hash);
 }
 
 QTEST_GUILESS_MAIN(TestF2)

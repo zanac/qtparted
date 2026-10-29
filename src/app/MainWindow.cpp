@@ -19,6 +19,7 @@
 #include "DialogName.h"
 #include "DialogNewPartition.h"
 #include "DialogPartitionInfo.h"
+#include "DialogResizeMove.h"
 #include "DiskMapWidget.h"
 #include "Layout.h"
 #include "Parted.h"
@@ -135,6 +136,30 @@ void MainWindow::createActions()
     m_actDelete->setToolTip(tr("Delete the selected partition"));
     connect(m_actDelete, &QAction::triggered, this, &MainWindow::actionDelete);
 
+    m_actResize = new QAction(Ui::icon("transform-scale", QStyle::SP_ArrowRight), tr("&Resize/Move"), this);
+    m_actResize->setToolTip(tr("Resize or move the selected partition"));
+    connect(m_actResize, &QAction::triggered, this, &MainWindow::actionResizeMove);
+
+    m_actCopy = new QAction(Ui::icon("edit-copy", QStyle::SP_FileIcon), tr("&Copy"), this);
+    m_actCopy->setShortcut(QKeySequence::Copy);
+    m_actCopy->setToolTip(tr("Copy the selected partition to the clipboard"));
+    connect(m_actCopy, &QAction::triggered, this, &MainWindow::actionCopy);
+
+    m_actPaste = new QAction(Ui::icon("edit-paste", QStyle::SP_FileIcon), tr("&Paste"), this);
+    m_actPaste->setShortcut(QKeySequence::Paste);
+    m_actPaste->setToolTip(tr("Paste the copied partition into the selection"));
+    connect(m_actPaste, &QAction::triggered, this, &MainWindow::actionPaste);
+
+    m_actCheck = new QAction(Ui::icon("emblem-checked", QStyle::SP_DialogApplyButton), tr("C&heck"), this);
+    m_actCheck->setToolTip(tr("Check and repair the file system, then grow it to fill the partition"));
+    connect(m_actCheck, &QAction::triggered, this, &MainWindow::actionCheck);
+
+    m_actLabel = new QAction(Ui::icon("tag", QStyle::SP_FileDialogContentsView), tr("&Label File System"), this);
+    connect(m_actLabel, &QAction::triggered, this, &MainWindow::actionLabel);
+
+    m_actUuid = new QAction(Ui::icon("view-refresh", QStyle::SP_BrowserReload), tr("New UU&ID"), this);
+    connect(m_actUuid, &QAction::triggered, this, &MainWindow::actionNewUuid);
+
     m_actName = new QAction(Ui::icon("edit-rename", QStyle::SP_FileDialogContentsView), tr("&Name Partition"), this);
     connect(m_actName, &QAction::triggered, this, &MainWindow::actionName);
 
@@ -191,10 +216,18 @@ void MainWindow::createMenus()
     m_partitionMenu->addAction(m_actNew);
     m_partitionMenu->addAction(m_actDelete);
     m_partitionMenu->addSeparator();
+    m_partitionMenu->addAction(m_actResize);
+    m_partitionMenu->addSeparator();
+    m_partitionMenu->addAction(m_actCopy);
+    m_partitionMenu->addAction(m_actPaste);
+    m_partitionMenu->addSeparator();
     m_partitionMenu->addMenu(m_formatMenu);
     m_partitionMenu->addSeparator();
     m_partitionMenu->addAction(m_actName);
     m_partitionMenu->addAction(m_actFlags);
+    m_partitionMenu->addAction(m_actCheck);
+    m_partitionMenu->addAction(m_actLabel);
+    m_partitionMenu->addAction(m_actUuid);
     m_partitionMenu->addSeparator();
     m_partitionMenu->addAction(m_actInfo);
 
@@ -210,6 +243,10 @@ void MainWindow::createToolBar()
     tb->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     tb->addAction(m_actNew);
     tb->addAction(m_actDelete);
+    tb->addAction(m_actResize);
+    tb->addSeparator();
+    tb->addAction(m_actCopy);
+    tb->addAction(m_actPaste);
     tb->addSeparator();
     tb->addAction(m_actUndo);
     tb->addAction(m_actApply);
@@ -436,6 +473,25 @@ void MainWindow::selectDevice(int index)
 void MainWindow::refreshVisual()
 {
     m_display = m_session.displayDevice(m_current);
+    // Like GParted, the clipboard follows the source partition and is dropped when the
+    // partition it holds is gone (deleted, moved, renumbered or rescanned differently).
+    if (m_clipboard) {
+        const Device source = m_session.displayDevice(m_session.deviceIndex(m_clipboard->devicePath));
+        const Partition *found = nullptr;
+        for (const Partition &p : source.partitions) {
+            if (p.path == m_clipboard->path && p.start == m_clipboard->start && p.end == m_clipboard->end
+                && p.status == PartitionStatus::Real)
+                found = &p;
+            for (const Partition &l : p.logicals)
+                if (l.path == m_clipboard->path && l.start == m_clipboard->start && l.end == m_clipboard->end
+                    && l.status == PartitionStatus::Real)
+                    found = &l;
+        }
+        if (found && found->fsType == m_clipboard->fsType)
+            m_clipboard = *found;
+        else
+            m_clipboard.reset();
+    }
     m_map->setDevice(m_display);
     m_model->setDevice(m_display);
     m_tree->expandAll();
@@ -506,6 +562,11 @@ void MainWindow::updatePendingList()
         case OperationType::Format:      iconName = "edit-clear-all"; fallback = QStyle::SP_DriveHDIcon; break;
         case OperationType::SetFlags:    iconName = "flag"; break;
         case OperationType::Name:        iconName = "edit-rename"; break;
+        case OperationType::ResizeMove:  iconName = "transform-scale"; fallback = QStyle::SP_ArrowRight; break;
+        case OperationType::Copy:        iconName = "edit-paste"; break;
+        case OperationType::Check:       iconName = "emblem-checked"; fallback = QStyle::SP_DialogApplyButton; break;
+        case OperationType::Label:       iconName = "tag"; break;
+        case OperationType::ChangeUuid:  iconName = "view-refresh"; fallback = QStyle::SP_BrowserReload; break;
         }
         new QListWidgetItem(Ui::icon(iconName, fallback), op->description(), m_pending);
     }
@@ -603,10 +664,17 @@ void MainWindow::updateActions()
     const Partition *sel = selectedPartition();
     AllowedActions a;
     if (idle && m_current >= 0)
-        a = Session::allowedActions(m_display, sel, m_session.pendingCount(m_display.path));
+        a = Session::allowedActions(m_display, sel, m_session.pendingCount(m_display.path),
+                                    m_clipboard ? &*m_clipboard : nullptr);
     m_actCreateTable->setEnabled(a.createTable);
     m_actNew->setEnabled(a.create);
     m_actDelete->setEnabled(a.remove);
+    m_actResize->setEnabled(a.resize);
+    m_actCopy->setEnabled(a.copy);
+    m_actPaste->setEnabled(a.paste);
+    m_actCheck->setEnabled(a.check);
+    m_actLabel->setEnabled(a.label);
+    m_actUuid->setEnabled(a.uuid);
     m_actName->setEnabled(a.name);
     m_actFlags->setEnabled(a.flags);
     m_actInfo->setEnabled(a.info);
@@ -710,7 +778,7 @@ void MainWindow::actionDelete()
         box.exec();
         return;
     }
-    if (sel->status == PartitionStatus::New) {
+    if (sel->status == PartitionStatus::New || sel->status == PartitionStatus::Copy) {
         m_session.removeOperationsOnNew(*sel);
         m_selectedKey.clear();
         refreshVisual();
@@ -753,6 +821,115 @@ void MainWindow::actionFormat(FsType type)
     Parted::composePartitionFlags(np, m_display.diskType);
     const Partition original = *sel;
     addOperation(std::make_unique<OperationFormat>(m_session.devices[size_t(m_current)], original, np));
+}
+
+void MainWindow::actionResizeMove()
+{
+    const Partition *sel = selectedPartition();
+    if (!sel)
+        return;
+    const Partition original = *sel;
+    DialogResizeMove dialog(m_display, original, this);
+    if (dialog.exec() != QDialog::Accepted || !dialog.changed())
+        return;
+    const Partition np = dialog.result();
+    if (np.start != original.start && original.status == PartitionStatus::Real
+        && original.type != PartitionType::Extended) {
+        // GParted's warning: boot loaders refer to sectors, a moved partition may not boot.
+        QMessageBox box(QMessageBox::Warning, tr("Moving a partition might cause your operating system to fail to boot"),
+                        tr("This operation moves the start sector of partition %1.").arg(original.path),
+                        QMessageBox::Cancel, this);
+        box.setInformativeText(tr("Failure to boot is most likely to occur if you move the start of a partition "
+                                  "containing the operating system, the boot loader or files it needs. You can "
+                                  "learn how to repair the boot configuration in the documentation of your "
+                                  "boot loader (for GRUB: reinstall it from a live system)."));
+        QPushButton *ok = box.addButton(tr("&Queue the Move"), QMessageBox::AcceptRole);
+        box.exec();
+        if (box.clickedButton() != ok)
+            return;
+    }
+    m_selectedKey = Ui::partitionKey(np);
+    addOperation(std::make_unique<OperationResizeMove>(m_session.devices[size_t(m_current)], original, np));
+}
+
+void MainWindow::actionCopy()
+{
+    if (const Partition *sel = selectedPartition()) {
+        m_clipboard = *sel;
+        m_statusLabel->setText(tr("%1 copied: select unallocated space or a partition and paste").arg(sel->path));
+        updateActions();
+    }
+}
+
+void MainWindow::actionPaste()
+{
+    const Partition *sel = selectedPartition();
+    if (!sel || !m_clipboard)
+        return;
+    const Partition copied = *m_clipboard;
+    const Device &device = m_session.devices[size_t(m_current)];
+    if (sel->type == PartitionType::Unallocated) {
+        int primaries = 0;
+        for (const Partition &p : m_display.partitions)
+            if (p.type == PartitionType::Primary || p.type == PartitionType::Extended)
+                ++primaries;
+        if (!sel->insideExtended && primaries >= m_display.maxPrimaries) {
+            QMessageBox::critical(this, QStringLiteral("QtParted"),
+                                  tr("It is not possible to create more than %n primary partition(s)", nullptr,
+                                     m_display.maxPrimaries));
+            return;
+        }
+        const Partition unallocated = *sel;
+        DialogResizeMove dialog(m_display, unallocated, copied, m_session.nextNewNumber(), this);
+        if (dialog.exec() != QDialog::Accepted)
+            return;
+        const Partition np = dialog.result();
+        m_selectedKey = Ui::partitionKey(np);
+        addOperation(std::make_unique<OperationCopy>(device, unallocated, np, copied));
+        return;
+    }
+    // Over an existing partition: its contents are replaced.
+    const Partition destination = *sel;
+    QMessageBox box(QMessageBox::Warning, tr("You have pasted into an existing partition"),
+                    tr("The data in %1 will be lost when the operation is applied.").arg(destination.path),
+                    QMessageBox::Cancel, this);
+    QPushButton *ok = box.addButton(tr("&Paste"), QMessageBox::DestructiveRole);
+    box.setDefaultButton(QMessageBox::Cancel);
+    box.exec();
+    if (box.clickedButton() != ok)
+        return;
+    addOperation(std::make_unique<OperationCopy>(device, destination, Layout::pasteIntoExisting(destination, copied),
+                                                 copied));
+}
+
+void MainWindow::actionCheck()
+{
+    if (const Partition *sel = selectedPartition()) {
+        const Partition p = *sel;
+        addOperation(std::make_unique<OperationCheck>(m_session.devices[size_t(m_current)], p));
+    }
+}
+
+void MainWindow::actionLabel()
+{
+    const Partition *sel = selectedPartition();
+    if (!sel)
+        return;
+    DialogName dialog(tr("Set file system label on %1").arg(sel->path), tr("&Label:"), sel->fsLabel,
+                      fsLabelMaxLength(sel->fsType), this);
+    if (dialog.exec() != QDialog::Accepted || dialog.name() == sel->fsLabel)
+        return;
+    const Partition original = *sel;
+    addOperation(std::make_unique<OperationLabel>(m_session.devices[size_t(m_current)], original, dialog.name()));
+}
+
+void MainWindow::actionNewUuid()
+{
+    const Partition *sel = selectedPartition();
+    if (!sel)
+        return;
+    const Partition original = *sel;
+    addOperation(std::make_unique<OperationChangeUuid>(m_session.devices[size_t(m_current)], original));
 }
 
 void MainWindow::actionName()

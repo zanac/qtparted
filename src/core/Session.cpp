@@ -85,6 +85,13 @@ bool Session::addOperation(std::unique_ptr<Operation> op, QString *error)
     op->createDescription();
 
     for (int i = int(operations.size()) - 1; i >= 0; --i) {
+        // A copy of this partition in between takes the state it had then: changes
+        // queued after it must not be moved before it (GParted's merge rules).
+        if (operations[size_t(i)]->type() == OperationType::Copy) {
+            const auto &copy = static_cast<const OperationCopy &>(*operations[size_t(i)]);
+            if (copy.copied().devicePath == op->original().devicePath && copy.copied().path == op->original().path)
+                break;
+        }
         if (operations[size_t(i)]->device() == op->device() && affectSamePartition(*operations[size_t(i)], *op)) {
             if (operations[size_t(i)]->mergeWith(*op))
                 return true;
@@ -110,7 +117,7 @@ void Session::removeOperationsOnNew(const Partition &p)
 {
     for (auto it = operations.begin(); it != operations.end();) {
         if ((*it)->type() != OperationType::Delete && (*it)->device().path == p.devicePath
-            && (*it)->partitionNew().path == p.path)
+            && (*it)->partitionNew().path == p.path && (*it)->partitionNew().start == p.start)
             it = operations.erase(it);
         else
             ++it;
@@ -157,6 +164,12 @@ AllowedActions Session::allowedActions(const Device &display, const Partition *s
     if (inTable && real && !display.readonly && !sel->availableFlags.isEmpty())
         a.flags = true;
 
+    if (sel->status == PartitionStatus::Copy) {
+        // A pending paste: it can only be removed again (GParted).
+        a.remove = !display.readonly;
+        return a;
+    }
+
     if (sel->busy) {
         // Online changes need the kernel to accept a changed partition table.
         if (!display.readonly && fsTools && inTable && (fs.canResizeOnline() || sel->type == PartitionType::Extended))
@@ -201,7 +214,8 @@ AllowedActions Session::allowedActions(const Device &display, const Partition *s
             a.check = true;
         if (clipboard && real && fsTools && !display.readonly && clipboard->sectorSize == display.sectorSize
             && clipboard->byteLength() <= sel->byteLength()
-            && !(clipboard->devicePath == sel->devicePath && *clipboard == *sel))
+            && !(clipboard->devicePath == sel->devicePath && clipboard->start <= sel->end
+                 && sel->start <= clipboard->end))
             a.paste = true;
     }
     return a;

@@ -15,6 +15,7 @@
 #include "Command.h"
 #include "OperationDetail.h"
 #include "Parted.h"
+#include "SystemInfo.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -41,12 +42,14 @@ bool withMountedFileSystem(const Partition &p, const QString &mountType, Operati
                            const std::function<bool(const QString &)> &body)
 {
     if (p.busy) {
-        // Online: use a directory the file system is mounted on.
-        for (const QString &mp : p.mountPoints)
+        // Online: a directory this very device is mounted on now (the mount table is read
+        // again: what was mounted at the queued mount points may have changed).
+        SystemInfo info;
+        info.load();
+        for (const QString &mp : info.mountPoints(p.path))
             if (QDir(mp).exists())
                 return body(mp);
-        detail.addChild(tr("No directory mount point found in %1").arg(p.mountPointsText()),
-                        OperationDetail::Status::Error);
+        detail.addChild(tr("%1 is not mounted on a directory any more").arg(p.path), OperationDetail::Status::Error);
         return false;
     }
 
@@ -232,7 +235,7 @@ void FileSystemRegistry::addResizeAndMaintenance()
         };
         d->labelPrograms = { QStringLiteral("ntfslabel") };
         d->writeUuid = [](const Partition &p, OperationDetail &od) {
-            return run(QStringLiteral("ntfslabel"), { QStringLiteral("--new-serial"), p.path }, od);
+            return run(QStringLiteral("ntfslabel"), { QStringLiteral("--new-half-serial")  /* as GParted: keeps Windows activation */, p.path }, od);
         };
         d->uuidPrograms = { QStringLiteral("ntfslabel") };
         d->moveNeedsCheck = true;
@@ -409,6 +412,7 @@ void FileSystemRegistry::addResizeAndMaintenance()
         d->checkProgram = QStringLiteral("lvm");
         d->checkArgs = pathArgs({ "pvck", "-v" });
         d->copyable = false;  // duplicate PV UUIDs would confuse LVM
+        d->moveNeedsCheck = true;  // as GParted: only with the LVM tools
     }
 
     if (FileSystem::Definition *d = def(FsType::Udf)) {
@@ -436,6 +440,7 @@ void FileSystemRegistry::addResizeAndMaintenance()
     }
 
     if (FileSystem::Definition *d = def(FsType::Bcachefs)) {
+        d->moveNeedsCheck = true;
         d->resize = [](const Partition &p, OperationDetail &od, bool) {
             return run(QStringLiteral("bcachefs"), { QStringLiteral("device"), QStringLiteral("resize"), p.path }, od);
         };

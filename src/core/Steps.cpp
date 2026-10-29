@@ -296,6 +296,12 @@ bool resizeMove(const Partition &o, Partition &n, OperationDetail &detail)
 
 bool copy(const Partition &src, Partition &dst, OperationDetail &detail)
 {
+    // Never onto itself: the destination is erased before the copy.
+    if (src.devicePath == dst.devicePath && src.start <= dst.end && dst.start <= src.end) {
+        detail.addChild(tr("the destination overlaps the source partition %1: nothing was changed").arg(src.path),
+                        OperationDetail::Status::Error, OperationDetail::Font::Italic);
+        return false;
+    }
     if (dst.byteLength() < src.byteLength()) {
         detail.addChild(tr("the destination is smaller than the source partition"), OperationDetail::Status::Error,
                         OperationDetail::Font::Italic);

@@ -77,6 +77,8 @@ private Q_SLOTS:
     void createTableVisual();
     void allowedActionsRules();
     void flagsOnExtendedKeepLogicals();
+    void resizeMoveLimitsAndMerge();
+    void pasteRulesAndGeometry();
     void invalidPartitionRejected();
 };
 
@@ -359,6 +361,167 @@ void TestModel::invalidPartitionRejected()
                             &error));
     QVERIFY(error.contains(QStringLiteral("after the end")));
     QVERIFY(s.operations.empty());
+}
+
+void TestModel::resizeMoveLimitsAndMerge()
+{
+    FileSystemRegistry::instance().detect();
+    if (!FileSystemRegistry::instance().support(FsType::Ext4).canResize())
+        QSKIP("needs e2fsprogs");
+    // [2 MiB free][ext4 200 MiB, 50 MiB used][free up to 1 GiB]
+    Device d = fakeDevice(QStringLiteral("gpt"));
+    Partition p = realPartition(d, 1, 2 * kMiB, 2 * kMiB + 200 * kMiB - 1, PartitionType::Primary, FsType::Ext4);
+    p.setUsage(p.length(), p.length() - 50 * kMiB);
+    d.partitions = { p };
+    insertUnallocated(d.path, d.partitions, 0, d.length - 1, 512, false);
+
+    Session s;
+    s.devices.push_back(d);
+    Device disp = s.displayDevice(0);
+    const Partition &shown = disp.partitions[1];
+    QCOMPARE(shown.number, 1);
+    const Layout::SpaceEdit space = Layout::resizeMoveSpace(disp, shown);
+    QVERIFY(!space.fixedStart);
+    QCOMPARE(space.beforeMiB, qint64(2));
+    QCOMPARE(space.sizeMiB, qint64(200));
+    QCOMPARE(space.minBeforeMiB, qint64(1));  // partition table
+    QVERIFY(space.minSizeMiB >= 50 && space.minSizeMiB < 60);
+    QVERIFY(space.maxSizeMiB >= 1020 && space.maxSizeMiB <= 1023);  // the rest of the disk minus the backup GPT
+    QCOMPARE(space.usedMiB, space.minSizeMiB);
+
+    // Move right by 100 MiB and grow to 300 MiB, then shrink to 150 MiB: one operation.
+    const Partition n1 = Layout::applyResizeMove(disp, shown, space, 101, 300, space.totalMiB - 401, Alignment::MiB);
+    QCOMPARE(n1.start, Sector(101 * kMiB));
+    QCOMPARE(n1.length(), Sector(300 * kMiB));
+    QVERIFY(s.addOperation(std::make_unique<OperationResizeMove>(d, shown, n1)));
+    disp = s.displayDevice(0);
+    const Partition &moved = disp.partitions[1];
+    QCOMPARE(moved.start, n1.start);
+    const Layout::SpaceEdit space2 = Layout::resizeMoveSpace(disp, moved);
+    QCOMPARE(space2.beforeMiB, qint64(101));
+    const Partition n2 = Layout::applyResizeMove(disp, moved, space2, 101, 150, space2.totalMiB - 251, Alignment::MiB);
+    QVERIFY(s.addOperation(std::make_unique<OperationResizeMove>(d, moved, n2)));
+    QCOMPARE(int(s.operations.size()), 1);
+    QCOMPARE(s.operations.front()->original().start, Sector(2 * kMiB));
+    QCOMPARE(s.operations.front()->partitionNew().length(), Sector(150 * kMiB));
+
+    // Used space outside the new size is refused.
+    Partition tooSmall = n2;
+    tooSmall.end = tooSmall.start + 10 * kMiB - 1;
+    tooSmall.setUsage(tooSmall.length(), 0);
+    tooSmall.sectorsUsed = 50 * kMiB;
+    QString error;
+    QVERIFY(!s.addOperation(std::make_unique<OperationResizeMove>(d, s.displayDevice(0).partitions[1], tooSmall), &error));
+    QVERIFY(!error.isEmpty());
+
+    // A busy partition can only be grown online: start fixed, no move.
+    Device busyDev = d;
+    busyDev.partitions[1].busy = true;
+    busyDev.partitions[1].mountPoints = { QStringLiteral("/mnt") };
+    const Layout::SpaceEdit online = Layout::resizeMoveSpace(busyDev, busyDev.partitions[1]);
+    QVERIFY(online.fixedStart);
+    QCOMPARE(online.beforeMiB, qint64(0));
+    QCOMPARE(online.maxBeforeMiB, qint64(0));
+}
+
+void TestModel::pasteRulesAndGeometry()
+{
+    FileSystemRegistry::instance().detect();
+    if (FileSystemRegistry::instance().support(FsType::Ext4).copy == FsMethod::None)
+        QSKIP("needs e2fsprogs");
+    // [ext4 100 MiB][ext4 300 MiB][free]
+    Device d = fakeDevice(QStringLiteral("gpt"));
+    Partition a = realPartition(d, 1, 2048, 2048 + 100 * kMiB - 1, PartitionType::Primary, FsType::Ext4);
+    a.setUsage(a.length(), a.length() - 20 * kMiB);
+    a.fsLabel = QStringLiteral("src");
+    a.uuid = QStringLiteral("1234");
+    Partition b = realPartition(d, 2, a.end + 1, a.end + 300 * kMiB, PartitionType::Primary, FsType::Ext4);
+    b.setUsage(b.length(), b.length() / 2);
+    d.partitions = { a, b };
+    insertUnallocated(d.path, d.partitions, 0, d.length - 1, 512, false);
+
+    Session s;
+    s.devices.push_back(d);
+    Device disp = s.displayDevice(0);
+    const Partition *un = findUnallocated(disp.partitions);
+    while (un && un->length() < kMiB * 100)
+        un = un + 1;
+    QVERIFY(un && un->type == PartitionType::Unallocated);
+    const Partition &src = disp.partitions[0];
+
+    // Paste targets: free space and a large enough other partition, never itself.
+    QVERIFY(Session::allowedActions(disp, un, 0, &src).paste);
+    QVERIFY(Session::allowedActions(disp, &disp.partitions[1], 0, &src).paste);
+    QVERIFY(!Session::allowedActions(disp, &disp.partitions[0], 0, &src).paste);
+    QVERIFY(!Session::allowedActions(disp, &disp.partitions[0], 0, &disp.partitions[1]).paste);  // too small
+    QVERIFY(Session::allowedActions(disp, &disp.partitions[0], 0).copy);
+
+    const Layout::SpaceEdit space = Layout::pasteSpace(*un, src);
+    QCOMPARE(space.sizeMiB, qint64(100));
+    QCOMPARE(space.minSizeMiB, qint64(100));
+    const Partition np = Layout::makePastedPartition(disp, *un, src, space, 0, 200, space.totalMiB - 200,
+                                                     Alignment::MiB, s.nextNewNumber());
+    QCOMPARE(np.status, PartitionStatus::Copy);
+    QCOMPARE(np.fsType, FsType::Ext4);
+    QCOMPARE(np.length(), Sector(200 * kMiB));
+    QVERIFY(s.addOperation(std::make_unique<OperationCopy>(d, *un, np, src)));
+    QCOMPARE(s.nextNewNumber(), 2);
+
+    // The pending copy can only be deleted, which drops the operation.
+    disp = s.displayDevice(0);
+    const Partition *pasted = nullptr;
+    for (const Partition &p : disp.partitions)
+        if (p.status == PartitionStatus::Copy)
+            pasted = &p;
+    QVERIFY(pasted);
+    const AllowedActions pa = Session::allowedActions(disp, pasted, 1, &src);
+    QVERIFY(pa.remove && !pa.resize && !pa.copy && !pa.format && !pa.label && !pa.check);
+    s.removeOperationsOnNew(*pasted);
+    QVERIFY(s.operations.empty());
+
+    // Over an existing partition: its geometry stays, the file system is the source's.
+    const Partition over = Layout::pasteIntoExisting(disp.partitions[1], src);
+    QCOMPARE(over.start, b.start);
+    QCOMPARE(over.end, b.end);
+    QCOMPARE(over.path, b.path);
+    QCOMPARE(over.fsLabel, QStringLiteral("src"));
+    QCOMPARE(over.uuid, QStringLiteral("1234"));
+    QCOMPARE(over.sectorsUsed, Sector(20 * kMiB));
+    QVERIFY(s.addOperation(std::make_unique<OperationCopy>(d, s.displayDevice(0).partitions[1], over, src)));
+    QCOMPARE(s.displayDevice(0).partitions[1].fsLabel, QStringLiteral("src"));
+
+    // Label and UUID operations change only that attribute and merge.
+    disp = s.displayDevice(0);
+    QVERIFY(s.addOperation(std::make_unique<OperationLabel>(d, disp.partitions[0], QStringLiteral("one"))));
+    QVERIFY(s.addOperation(std::make_unique<OperationLabel>(d, s.displayDevice(0).partitions[0], QStringLiteral("two"))));
+    QCOMPARE(int(s.operations.size()), 2);
+    QCOMPARE(s.displayDevice(0).partitions[0].fsLabel, QStringLiteral("two"));
+    QCOMPARE(s.displayDevice(0).partitions[0].start, a.start);
+
+    // Regression: a copy of the source in between stops merging, so a later change
+    // isn't moved before the copy (the copy would get it too).
+    Session s2;
+    s2.devices.push_back(d);
+    disp = s2.displayDevice(0);
+    QVERIFY(s2.addOperation(std::make_unique<OperationChangeUuid>(d, disp.partitions[0])));
+    const Partition *free2 = &disp.partitions.back();
+    QVERIFY(free2->type == PartitionType::Unallocated);
+    const Layout::SpaceEdit sp2 = Layout::pasteSpace(*free2, disp.partitions[0]);
+    QVERIFY(s2.addOperation(std::make_unique<OperationCopy>(
+        d, *free2,
+        Layout::makePastedPartition(disp, *free2, disp.partitions[0], sp2, sp2.beforeMiB, sp2.sizeMiB,
+                                    sp2.afterMiB, Alignment::MiB, s2.nextNewNumber()),
+        disp.partitions[0])));
+    QVERIFY(s2.addOperation(std::make_unique<OperationChangeUuid>(d, s2.displayDevice(0).partitions[0])));
+    QCOMPARE(int(s2.operations.size()), 3);
+
+    // Regression: pasting onto the same sectors under another path (renumbered logical)
+    // is refused.
+    Partition renamed = disp.partitions[1];
+    Partition clip = renamed;
+    clip.path = d.path + QStringLiteral("9");
+    clip.number = 9;
+    QVERIFY(!Session::allowedActions(disp, &disp.partitions[1], 0, &clip).paste);
 }
 
 QTEST_GUILESS_MAIN(TestModel)

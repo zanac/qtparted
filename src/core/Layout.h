@@ -74,6 +74,9 @@ Partition makePastedPartition(const Device &device, const Partition &unallocated
                               const SpaceEdit &space, qint64 beforeMiB, qint64 sizeMiB, qint64 afterMiB,
                               Alignment alignment, int number);
 
+// The existing partition `destination` after pasting `copied` over it.
+Partition pasteIntoExisting(const Partition &destination, const Partition &copied);
+
 // Bytes needed in `unallocated` to paste `copied` (partition table / EBR / backup GPT included).
 ByteValue pasteRequiredBytes(const Device &device, const Partition &unallocated, const Partition &copied);
 

@@ -631,7 +631,7 @@ bool OperationLabel::mergeWith(const Operation &candidate)
 
 bool OperationLabel::execute(OperationDetail &detail)
 {
-    return Parted::calibrate(m_new, detail) && Parted::verifyTarget(m_new, false, detail, m_new.busy)
+    return Parted::calibrate(m_new, detail) && Parted::verifyTarget(m_new, true, detail, m_new.busy)
         && Steps::labelFileSystem(m_new, detail);
 }
 
@@ -661,7 +661,7 @@ bool OperationChangeUuid::mergeWith(const Operation &candidate)
 
 bool OperationChangeUuid::execute(OperationDetail &detail)
 {
-    return Parted::calibrate(m_new, detail) && Parted::verifyTarget(m_new, false, detail)
+    return Parted::calibrate(m_new, detail) && Parted::verifyTarget(m_new, true, detail)
         && Steps::changeUuid(m_new, detail);
 }
 

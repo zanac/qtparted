@@ -33,6 +33,7 @@ add_executable(qtparted
     app/DialogName.cpp
     app/DialogNewPartition.cpp
     app/DialogPartitionInfo.cpp
+    app/DialogResizeMove.cpp
     app/DiskMapWidget.cpp
     app/MainWindow.cpp
     app/PartitionResizer.cpp

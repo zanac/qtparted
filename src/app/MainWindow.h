@@ -13,6 +13,8 @@
 
 #include <QMainWindow>
 
+#include <optional>
+
 class QAction;
 class QDockWidget;
 class QFormLayout;
@@ -66,6 +68,12 @@ private:
     void actionNew();
     void actionDelete();
     void actionFormat(FsType type);
+    void actionResizeMove();
+    void actionCopy();
+    void actionPaste();
+    void actionCheck();
+    void actionLabel();
+    void actionNewUuid();
     void actionName();
     void actionFlags();
     void actionInfo();
@@ -82,6 +90,7 @@ private:
     QString m_selectedKey;
     QStringList m_userPaths;
     bool m_scanning = false;
+    std::optional<Partition> m_clipboard;  // partition copied for pasting
 
     DiskMapWidget *m_map = nullptr;
     QTreeView *m_tree = nullptr;
@@ -105,6 +114,12 @@ private:
     QAction *m_actCreateTable = nullptr;
     QAction *m_actNew = nullptr;
     QAction *m_actDelete = nullptr;
+    QAction *m_actResize = nullptr;
+    QAction *m_actCopy = nullptr;
+    QAction *m_actPaste = nullptr;
+    QAction *m_actCheck = nullptr;
+    QAction *m_actLabel = nullptr;
+    QAction *m_actUuid = nullptr;
     QAction *m_actName = nullptr;
     QAction *m_actFlags = nullptr;
     QAction *m_actInfo = nullptr;

@@ -16,6 +16,15 @@ ChangeLog for QtParted:
   - pkexec launcher with polkit policy, X11/XWayland and Wayland support;
     desktop file and AppStream metadata
   - Disk image files can be opened from the command line
+  - Resize and move partitions (primary, logical and extended) with a
+    graphical editor; file systems are resized with their own tools or
+    libparted (FAT, HFS), moved with an internal block copy that is rolled
+    back on failure, NTFS boot sectors are updated, swap is recreated with
+    its label and UUID; mounted file systems can be grown online
+  - Copy and paste partitions into free space (optionally larger) or over
+    an existing partition
+  - Check and repair file systems, set file system labels, new UUIDs
+  - File System Support dialog lists grow/shrink/move/copy/check/label/UUID
   - Unit tests and end-to-end tests on image files and loop devices
 
 * 0.6.0 (2012-04-07)

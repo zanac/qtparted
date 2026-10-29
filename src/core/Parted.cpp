@@ -664,6 +664,15 @@ bool verifyTarget(const Partition &p, bool checkKernelGeometry, OperationDetail 
 {
     OperationDetail &od = detail.addChild(expectInUse ? tr("check the position of %1").arg(p.path)
                                                       : tr("check that %1 is not in use").arg(p.path));
+    if (expectInUse && p.type != PartitionType::Extended && !SystemInfo::isInUse(p.path)) {
+        // Queued as an online change: the file system tools would act on whatever is
+        // mounted at the old mount point now.
+        od.addChild(tr("%1 is no longer in use, but the operation was queued for a mounted file system. "
+                       "Refresh the devices and queue it again. Nothing was changed on it.").arg(p.path),
+                    OperationDetail::Status::None, OperationDetail::Font::Italic);
+        od.setStatus(OperationDetail::Status::Error);
+        return false;
+    }
     if (!expectInUse && SystemInfo::isInUse(p.path)) {
         od.addChild(tr("%1 is in use (mounted, active swap, or used by another device). "
                        "Nothing was changed on it.").arg(p.path),

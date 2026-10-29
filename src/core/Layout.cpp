@@ -444,6 +444,27 @@ SpaceEdit pasteSpace(const Partition &un, const Partition &copied)
     return s;
 }
 
+Partition pasteIntoExisting(const Partition &dst, const Partition &copied)
+{
+    // Port of GParted's Win_GParted::activate_paste() for an existing partition:
+    // the destination keeps its geometry and table attributes, the file system
+    // (including label and UUID: it is a block copy) comes from the source.
+    Partition n = dst;
+    n.fsType = copied.fsType;
+    n.fsLabel = copied.fsLabel;
+    n.uuid = copied.uuid;
+    n.mountPoints.clear();
+    n.messages.clear();
+    n.busy = false;
+    n.clearUsage();
+    if (copied.usageKnown()) {
+        // The copied file system is grown to fill the destination afterwards.
+        const Sector used = (copied.sectorsUsed * copied.sectorSize + dst.sectorSize - 1) / dst.sectorSize;
+        n.setUsage(dst.length(), dst.length() - used);
+    }
+    return n;
+}
+
 Partition makePastedPartition(const Device &device, const Partition &un, const Partition &copied,
                               const SpaceEdit &s, qint64 before, qint64 size, qint64 after, Alignment alignment,
                               int number)
@@ -474,6 +495,8 @@ Partition makePastedPartition(const Device &device, const Partition &un, const P
     n.end = un.end;
     prepare(device, n, s, before, size, after, alignment);
     n.status = PartitionStatus::Copy;
+    // Only the flags the partition type implies are written for a new partition.
+    n.flags.clear();
     Parted::composePartitionFlags(n, device.diskType);
     return n;
 }

@@ -29,15 +29,23 @@ so it also fits live and rescue systems.
   - delete partitions (logical partitions are renumbered as the kernel will do);
   - format to any supported file system, or clear the old signatures;
   - set partition flags (queued, unlike in GParted);
-  - set GPT partition names.
+  - set GPT partition names;
+  - resize and move partitions, including logical and extended ones, with the
+    file system's own tools (or libparted for FAT and HFS); moves use an
+    internal block copy that is rolled back if it fails; mounted file systems
+    that support it can be grown (and some shrunk) online;
+  - copy a partition and paste it into free space, optionally larger, or over
+    another partition;
+  - check and repair a file system, set its label, give it a new UUID.
 - 21 file systems for creation and usage reporting: bcachefs, btrfs, exfat,
   ext2/3/4, f2fs, fat16/32, hfs, hfs+, jfs, linux-swap, LVM2 PV, minix, nilfs2,
   ntfs, reiser4, reiserfs, udf, xfs. Many more are recognised (LUKS, BitLocker,
   APFS, ZFS, RAID members...).
 - Detection of mounted file systems, active swap and devices held by
   device-mapper, LVM or MD, so those partitions can't be modified.
-- A "File System Support" dialog shows which tools are installed and which
-  packages provide the missing ones.
+- A "File System Support" dialog shows, for every file system, which actions
+  (create, grow, shrink, move, copy, check, label, UUID, usage) are available,
+  which tools are installed and which packages provide the missing ones.
 - An apply dialog shows live, expandable details of every command and its output,
   can stop after the current operation, and saves an HTML log.
 
@@ -47,7 +55,7 @@ so it also fits live and rescue systems.
 |-------|---------|--------|
 | F0 | Qt 6 skeleton, read-only scanning, main window, device information | done |
 | F1 | Partition table, new / delete / format, flags, names, alignment, operation queue, details log | done |
-| F2 | Resize / move with the file system tools, copy & paste, check, file system label, new UUID | planned |
+| F2 | Resize / move with the file system tools, copy & paste, check, file system label, new UUID | done |
 | F3 | LUKS open/close and resize, LVM PV activation, swapon/swapoff, mount/unmount | planned |
 | F4 | Translations, manual, packaging polish | planned |
 

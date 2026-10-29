@@ -22,24 +22,30 @@
 
 namespace QtParted {
 
+namespace {
+enum Column { ColName, ColCreate, ColGrow, ColShrink, ColMove, ColCopy, ColCheck, ColLabel, ColUuid, ColUsage,
+              ColTools, ColSoftware, ColumnCount };
+}
+
 DialogFsSupport::DialogFsSupport(QWidget *parent)
     : QDialog(parent)
 {
     setWindowTitle(tr("File System Support"));
 
     m_table = new QTableWidget(this);
-    m_table->setColumnCount(5);
-    m_table->setHorizontalHeaderLabels({ tr("File System"), tr("Create"), tr("Read usage"), tr("Tools"),
-                                         tr("Software") });
+    m_table->setColumnCount(ColumnCount);
+    m_table->setHorizontalHeaderLabels({ tr("File System"), tr("Create"), tr("Grow"), tr("Shrink"), tr("Move"),
+                                         tr("Copy"), tr("Check"), tr("Label"), tr("UUID"), tr("Read usage"),
+                                         tr("Tools"), tr("Software") });
     m_table->verticalHeader()->hide();
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->setSelectionMode(QAbstractItemView::NoSelection);
-    m_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
+    m_table->horizontalHeader()->setSectionResizeMode(ColTools, QHeaderView::Stretch);
     m_table->setAlternatingRowColors(true);
 
-    auto *legend = new QLabel(tr("Install the listed software and press <i>Rescan</i> to enable more file "
-                                 "systems. Resizing, moving, copying, checking and relabelling come in the "
-                                 "next QtParted versions."),
+    auto *legend = new QLabel(tr("Struck out tools are missing: install the listed software and press "
+                                 "<i>Rescan</i> to enable more actions. Hover a mark to see how an action is "
+                                 "done and whether it also works on a mounted file system."),
                               this);
     legend->setWordWrap(true);
 
@@ -59,7 +65,7 @@ DialogFsSupport::DialogFsSupport(QWidget *parent)
     top->addWidget(buttons);
 
     fill();
-    resize(760, 600);
+    resize(1040, 640);
 }
 
 void DialogFsSupport::fill()
@@ -73,30 +79,51 @@ void DialogFsSupport::fill()
         auto *name = new QTableWidgetItem(Ui::fsIcon(fs->type()), fsName(fs->type()));
         m_table->setItem(row, 0, name);
 
-        auto mark = [&](bool ok) {
+        auto mark = [&](bool ok, const QString &detail = QString()) {
             auto *i = new QTableWidgetItem(ok ? yes : no, QString());
-            i->setToolTip(ok ? tr("Supported") : tr("Not available"));
+            i->setToolTip(ok ? (detail.isEmpty() ? tr("Supported") : detail) : tr("Not available"));
             return i;
         };
-        m_table->setItem(row, 1, mark(fs->support().create));
-        m_table->setItem(row, 2, mark(fs->support().readUsage));
+        auto method = [&](FsMethod offline, FsMethod online) {
+            QString how;
+            switch (offline) {
+            case FsMethod::Libparted: how = tr("Supported (libparted)"); break;
+            case FsMethod::Recreate: how = tr("Supported (the file system is recreated)"); break;
+            case FsMethod::Block: how = tr("Supported (block copy)"); break;
+            default: how = tr("Supported"); break;
+            }
+            if (online != FsMethod::None)
+                how += tr(", also while mounted");
+            auto *i = mark(offline != FsMethod::None || online != FsMethod::None, how);
+            if (offline == FsMethod::None && online != FsMethod::None)
+                i->setToolTip(tr("Only while mounted"));
+            return i;
+        };
+        const FsSupport &f = fs->support();
+        m_table->setItem(row, ColCreate, mark(f.create));
+        m_table->setItem(row, ColGrow, method(f.grow, f.onlineGrow));
+        m_table->setItem(row, ColShrink, method(f.shrink, f.onlineShrink));
+        m_table->setItem(row, ColMove, method(f.move, FsMethod::None));
+        m_table->setItem(row, ColCopy, method(f.copy, FsMethod::None));
+        m_table->setItem(row, ColCheck, mark(f.check));
+        m_table->setItem(row, ColLabel, mark(f.writeLabel || f.onlineWriteLabel,
+                                             f.onlineWriteLabel ? tr("Supported, also while mounted") : QString()));
+        m_table->setItem(row, ColUuid, mark(f.writeUuid));
+        m_table->setItem(row, ColUsage, mark(f.readUsage));
 
         QStringList tools;
-        QStringList programs;
-        if (!fs->mkfsProgram().isEmpty())
-            programs << fs->mkfsProgram();
-        programs += fs->usagePrograms();
+        QStringList programs = fs->allPrograms();
         programs.removeDuplicates();
         for (const QString &p : programs)
             tools << (Tools::has(p) ? p : QStringLiteral("<s>%1</s>").arg(p));
         auto *toolsLabel = new QLabel(tools.join(QStringLiteral(", ")), m_table);
         toolsLabel->setContentsMargins(4, 0, 4, 0);
-        m_table->setCellWidget(row, 3, toolsLabel);
-        m_table->setItem(row, 4, new QTableWidgetItem(fs->software()));
+        m_table->setCellWidget(row, ColTools, toolsLabel);
+        m_table->setItem(row, ColSoftware, new QTableWidgetItem(fs->software()));
         ++row;
     }
     m_table->resizeColumnsToContents();
-    m_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
+    m_table->horizontalHeader()->setSectionResizeMode(ColTools, QHeaderView::Stretch);
 }
 
 } // namespace QtParted
