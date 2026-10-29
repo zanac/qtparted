@@ -812,11 +812,26 @@ void FileSystemRegistry::readUsage(Partition &p) const
             }
             return;
         }
+        // ext2/3/4: statvfs leaves the metadata out of the size, which would show as
+        // unallocated space.  The size comes from the super block (dumpe2fs reads it on a
+        // mounted file system too), the free space from statvfs: the super block free
+        // count of a mounted ext4 is only updated lazily.
+        Sector extSize = -1;
+        if (p.fsType == FsType::Ext2 || p.fsType == FsType::Ext3 || p.fsType == FsType::Ext4) {
+            const FileSystem *fs = get(p.fsType);
+            if (fs && fs->support().readUsage) {
+                Partition sb = p;
+                sb.messages.clear();
+                fs->readUsage(sb);
+                if (sb.usageKnown())
+                    extSize = sb.sectorsUsed + sb.sectorsUnused;
+            }
+        }
         if (!p.mountPoints.isEmpty()) {
             ByteValue size = 0, freeB = 0;
             QString error;
             if (mountedUsage(p.mountPoints.first(), size, freeB, error))
-                p.setUsage(size / p.sectorSize, freeB / p.sectorSize);
+                p.setUsage(extSize > 0 ? extSize : size / p.sectorSize, freeB / p.sectorSize);
             else
                 p.messages.append(error);
         }

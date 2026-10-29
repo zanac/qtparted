@@ -1045,6 +1045,7 @@ bool MainWindow::runBlocking(const QString &message, const std::function<bool(QS
     thread->wait();
     delete thread;
     setScanning(false);
+    m_statusLabel->clear();
     error = err;
     return ok;
 }
