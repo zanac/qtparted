@@ -1,0 +1,40 @@
+# Maintainer: Vanni Brutto <zanac4ever@gmail.com>
+pkgname=qtparted
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Partition editor for Qt 6 based on libparted"
+arch=('x86_64' 'aarch64')
+url="https://github.com/zanac/qtparted"
+license=('GPL-2.0-or-later')
+depends=('qt6-base' 'qt6-svg' 'parted' 'util-linux-libs' 'polkit')
+makedepends=('cmake' 'ninja' 'qt6-tools')
+checkdepends=()
+optdepends=('e2fsprogs: ext2/ext3/ext4'
+            'dosfstools: FAT16/FAT32'
+            'mtools: FAT usage and labels'
+            'ntfs-3g: NTFS'
+            'btrfs-progs: btrfs'
+            'xfsprogs: XFS'
+            'exfatprogs: exFAT'
+            'f2fs-tools: F2FS'
+            'jfsutils: JFS'
+            'nilfs-utils: NILFS2'
+            'udftools: UDF'
+            'cryptsetup: LUKS encryption'
+            'device-mapper: LUKS encryption'
+            'lvm2: LVM2 physical volumes')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/zanac/qtparted/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+    cmake -S "$pkgname-$pkgver" -B build -G Ninja \
+        -DCMAKE_BUILD_TYPE=None \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_INSTALL_LIBEXECDIR=lib \
+        -DQTPARTED_BUILD_TESTS=OFF
+    cmake --build build
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install build
+}

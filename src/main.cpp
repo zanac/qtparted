@@ -55,49 +55,86 @@ static void applySessionEnvironment(int argc, char **argv)
     }
 }
 
+namespace {
+
+void setApplicationInfo()
+{
+    QCoreApplication::setOrganizationName(QStringLiteral("QtParted"));
+    QCoreApplication::setApplicationName(QStringLiteral("qtparted"));
+    QCoreApplication::setApplicationVersion(QStringLiteral(QTPARTED_VERSION));
+}
+
+// English first, for the plural forms of the source texts; the user's language
+// (installed later, so it takes precedence) on top.  Translations are built into the
+// program; a qtparted_<lang>.qm in the data directory can add or override one.
+void installTranslators(QTranslator &qt, QTranslator &english, QTranslator &translator)
+{
+    if (qt.load(QLocale(), QStringLiteral("qtbase"), QStringLiteral("_"),
+                QLibraryInfo::path(QLibraryInfo::TranslationsPath)))
+        QCoreApplication::installTranslator(&qt);
+    if (english.load(QStringLiteral(":/i18n/qtparted_en.qm")))
+        QCoreApplication::installTranslator(&english);
+    if (translator.load(QLocale(), QStringLiteral("qtparted"), QStringLiteral("_"),
+                        QStringLiteral(QTPARTED_DATADIR "/translations"))
+        || translator.load(QLocale(), QStringLiteral("qtparted"), QStringLiteral("_"), QStringLiteral(":/i18n")))
+        QCoreApplication::installTranslator(&translator);
+}
+
+void setupParser(QCommandLineParser &parser)
+{
+    parser.setApplicationDescription(QCoreApplication::translate("main", "Partition editor based on libparted."));
+    parser.addHelpOption();
+    parser.addVersionOption();
+    QCommandLineOption sessionEnv(QStringLiteral("session-env"),
+                                  QCoreApplication::translate("main", "Setting of the user session (used by the launcher)."),
+                                  QStringLiteral("name=value"));
+    sessionEnv.setFlags(QCommandLineOption::HiddenFromHelp);
+    parser.addOption(sessionEnv);
+    parser.addPositionalArgument(QStringLiteral("devices"),
+                                 QCoreApplication::translate("main", "Devices or disk image files to edit "
+                                                                     "(default: all disks)."),
+                                 QStringLiteral("[device...]"));
+}
+
+bool onlyInformation(int argc, char **argv)
+{
+    for (int i = 1; i < argc; ++i)
+        for (const char *o : { "-h", "--help", "-?", "--help-all", "-v", "--version" })
+            if (std::strcmp(argv[i], o) == 0)
+                return true;
+    return false;
+}
+
+} // namespace
+
 int main(int argc, char **argv)
 {
     applySessionEnvironment(argc, argv);
 
+    if (onlyInformation(argc, argv)) {
+        // --help and --version work without a display.
+        QCoreApplication core(argc, argv);
+        setApplicationInfo();
+        QTranslator qt, english, translator;
+        installTranslators(qt, english, translator);
+        QCommandLineParser parser;
+        setupParser(parser);
+        parser.process(core);  // prints and exits
+        return 0;
+    }
+
     QApplication app(argc, argv);
-    QApplication::setOrganizationName(QStringLiteral("QtParted"));
-    QApplication::setApplicationName(QStringLiteral("qtparted"));
+    setApplicationInfo();
     QApplication::setApplicationDisplayName(QStringLiteral("QtParted"));
-    QApplication::setApplicationVersion(QStringLiteral(QTPARTED_VERSION));
     QApplication::setDesktopFileName(QStringLiteral("io.github.zanac.qtparted"));
     // Outside Plasma (rescue systems, other desktops) look up missing icons in Breeze.
     if (QIcon::fallbackThemeName().isEmpty() || QIcon::fallbackThemeName() == QLatin1String("hicolor"))
         QIcon::setFallbackThemeName(QStringLiteral("breeze"));
 
-    QTranslator qtTranslator;
-    if (qtTranslator.load(QLocale(), QStringLiteral("qtbase"), QStringLiteral("_"),
-                          QLibraryInfo::path(QLibraryInfo::TranslationsPath)))
-        QApplication::installTranslator(&qtTranslator);
-    // English first, for the plural forms of the source texts; the user's language
-    // (installed later, so it takes precedence) on top.  Translations are built into
-    // the program; a qtparted_<lang>.qm in the data directory can add or override one.
-    QTranslator english;
-    if (english.load(QStringLiteral(":/i18n/qtparted_en.qm")))
-        QApplication::installTranslator(&english);
-    QTranslator translator;
-    if (translator.load(QLocale(), QStringLiteral("qtparted"), QStringLiteral("_"),
-                        QStringLiteral(QTPARTED_DATADIR "/translations"))
-        || translator.load(QLocale(), QStringLiteral("qtparted"), QStringLiteral("_"), QStringLiteral(":/i18n")))
-        QApplication::installTranslator(&translator);
-
+    QTranslator qt, english, translator;
+    installTranslators(qt, english, translator);
     QCommandLineParser parser;
-    parser.setApplicationDescription(QApplication::translate("main", "Partition editor based on libparted."));
-    parser.addHelpOption();
-    parser.addVersionOption();
-    QCommandLineOption sessionEnv(QStringLiteral("session-env"),
-                                  QApplication::translate("main", "Setting of the user session (used by the launcher)."),
-                                  QStringLiteral("name=value"));
-    sessionEnv.setFlags(QCommandLineOption::HiddenFromHelp);
-    parser.addOption(sessionEnv);
-    parser.addPositionalArgument(QStringLiteral("devices"),
-                                 QApplication::translate("main", "Devices or disk image files to edit "
-                                                                 "(default: all disks)."),
-                                 QStringLiteral("[device...]"));
+    setupParser(parser);
     parser.process(app);
 
     QtParted::Parted::initialize();

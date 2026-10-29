@@ -14,17 +14,38 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends cmake ninja-build g++ pkg-config \
-            qt6-base-dev libparted-dev libblkid-dev parted \
-            e2fsprogs dosfstools mtools ntfs-3g f2fs-tools util-linux
+            qt6-base-dev qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools \
+            libparted-dev libblkid-dev parted \
+            e2fsprogs dosfstools mtools ntfs-3g f2fs-tools btrfs-progs xfsprogs util-linux \
+            cryptsetup-bin dmsetup desktop-file-utils appstream
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX=/usr
 
       - name: Build
         run: cmake --build build
+
+      - name: Validate desktop and AppStream files
+        run: |
+          desktop-file-validate data/io.github.zanac.qtparted.desktop
+          appstreamcli validate --no-net data/io.github.zanac.qtparted.metainfo.xml
 
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure -R model
 
       - name: Disk tests (image files and loop devices, as root)
         run: sudo ./build/tests/tst_disk
+
+      - name: Resize, move and copy tests (as root)
+        run: sudo ./build/tests/tst_f2
+
+      - name: LUKS, mount and swap tests (as root)
+        run: sudo ./build/tests/tst_f3
+
+      - name: Debian package
+        run: cd build && cpack -G DEB
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qtparted-deb
+          path: build/qtparted_*.deb

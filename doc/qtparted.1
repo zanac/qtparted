@@ -35,11 +35,26 @@ Show the version.
 .TP
 .I /usr/share/polkit-1/actions/io.github.zanac.qtparted.policy
 polkit action used by the launcher.
+.TP
+.I /etc/fstab
+mount points offered by the \fBMount on\fR action.
+.TP
+.I /usr/share/qtparted/translations/qtparted_\fIlang\fP.qm
+optional translation overriding the one built into the program.
+.SH ENVIRONMENT
+.TP
+.B LANG, LANGUAGE, LC_ALL, LC_MESSAGES
+language of the user interface (English and Italian are included).  The
+launcher passes them to the program.
+.SH NOTES
+The user manual is built into the program: \fBHelp \(-> Contents\fR (F1).
 .SH SEE ALSO
 .BR parted (8),
 .BR gparted (8),
 .BR losetup (8),
-.BR pkexec (1)
+.BR pkexec (1),
+.BR cryptsetup (8),
+.BR lvm (8)
 .SH AUTHOR
 Vanni Brutto <zanac4ever@gmail.com>.
 Partition handling logic derived from GParted by Bart Hakvoort, Curtis Gedak,

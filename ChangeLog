@@ -31,6 +31,11 @@ ChangeLog for QtParted:
   - Mount on fstab mount points, unmount, swapon/swapoff, LVM Volume Group
     activation, applied immediately like in GParted
   - Usage of reiserfs and reiser4; mounted ext2/3/4 report their full size
+  - Italian translation; English plural forms; translations built into the
+    program, new languages picked up from translations/*.ts
+  - User manual (doc/manual) shown in Help > Contents (F1)
+  - --help and --version work without a display
+  - Packages: .deb with CPack, Arch PKGBUILD, Fedora spec; CI builds a .deb
   - Unit tests and end-to-end tests on image files and loop devices
 
 * 0.6.0 (2012-04-07)

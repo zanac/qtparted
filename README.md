@@ -34,6 +34,7 @@ feature, in a native Qt application.
 - [Supported file systems](#supported-file-systems)
 - [Install and build](#install-and-build)
 - [Running](#running)
+- [Translations](#translations)
 - [Tests](#tests)
 - [Project status](#project-status)
 - [Source layout](#source-layout)
@@ -181,13 +182,17 @@ ISO 9660, RAID members, bcache and others.
 
 ## Install and build
 
-QtParted 1.0 is not released yet. Build it from the
-[`qt6`](https://github.com/zanac/qtparted/tree/qt6) branch.
+QtParted 1.0 has no release yet: build it from source, or make a package for
+your distribution with the files in [`packaging/`](packaging/README.md) (Debian/Ubuntu
+.deb with CPack, Arch PKGBUILD, Fedora spec). Every CI build also produces an
+Ubuntu 24.04 .deb, available among the artifacts of the
+[Actions runs](https://github.com/zanac/qtparted/actions).
 
 Requirements:
 
 - CMake ≥ 3.19 and a C++20 compiler (GCC 11+, Clang 14+)
-- Qt ≥ 6.4: Core, Gui, Widgets (and Test for the tests)
+- Qt ≥ 6.4: Core, Gui, Widgets (and Test for the tests); Qt Linguist tools for the
+  translations
 - libparted ≥ 3.1 with libparted-fs-resize, and libblkid (util-linux), with
   their development files
 - pkg-config
@@ -195,19 +200,20 @@ Requirements:
 Debian / Ubuntu:
 
 ```sh
-sudo apt install cmake ninja-build g++ pkg-config qt6-base-dev libparted-dev libblkid-dev
+sudo apt install cmake ninja-build g++ pkg-config qt6-base-dev qt6-tools-dev qt6-l10n-tools \
+                 libparted-dev libblkid-dev
 ```
 
 Fedora:
 
 ```sh
-sudo dnf install cmake ninja-build gcc-c++ qt6-qtbase-devel parted-devel libblkid-devel
+sudo dnf install cmake ninja-build gcc-c++ qt6-qtbase-devel qt6-linguist parted-devel libblkid-devel
 ```
 
 Then:
 
 ```sh
-git clone -b qt6 https://github.com/zanac/qtparted.git
+git clone https://github.com/zanac/qtparted.git
 cd qtparted
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
 cmake --build build
@@ -216,7 +222,8 @@ sudo cmake --install build
 ```
 
 Options: `-DQTPARTED_BUILD_GUI=OFF` builds only the core library and its tests;
-`-DQTPARTED_BUILD_TESTS=OFF` skips the tests.
+`-DQTPARTED_BUILD_TESTS=OFF` skips the tests. To make a .deb, run `cpack -G DEB` in
+the build directory.
 
 At runtime QtParted needs:
 
@@ -246,6 +253,28 @@ On disk image files the partition table can be edited directly. File systems
 need a block device, so attach the image first:
 `sudo losetup -P --show -f disk.img`.
 
+The [user manual](doc/manual/manual.md) is built into the program too:
+**Help → Contents** (F1).
+
+## Translations
+
+<img src="doc/screenshots/italian.png" alt="QtParted in Italian" width="60%">
+
+QtParted is translated into **Italian**; the plural forms of the English texts
+come from an English translation file. The interface follows `LANG` /
+`LANGUAGE`, which the launcher passes to the program.
+
+New languages are welcome. Translations are standard Qt Linguist files in
+[`translations/`](translations/):
+
+```sh
+cp translations/qtparted_it.ts translations/qtparted_de.ts   # then set language="de" in it
+cmake --build build --target update_translations             # refresh the strings from the sources
+linguist translations/qtparted_de.ts                          # translate
+```
+
+New `.ts` files are picked up automatically and built into the program.
+
 ## Tests
 
 | Test | What it covers | Needs |
@@ -269,7 +298,11 @@ system tools work inside it. The LUKS headers and passphrases stay real.
 | F1 | Partition tables, new / delete / format, flags, names, alignment, operation queue, details log | done |
 | F2 | Resize / move with the file system tools, copy & paste, check, file system label, new UUID | done |
 | F3 | LUKS open/close and resize, LVM Volume Group activation, swapon/swapoff, mount/unmount | done |
-| F4 | Translations, manual, packaging polish | planned |
+| F4 | Translations (Italian), built-in manual, packages (.deb, PKGBUILD, spec), CI | done |
+
+Next: the first 1.0 release, more translations, and testing on real hardware with
+LUKS and LVM: the development container has no device-mapper, so those paths were
+exercised with the fakecrypt double and, on CI, with the real kernel.
 
 Bug reports and ideas are welcome in the
 [issue tracker](https://github.com/zanac/qtparted/issues).
@@ -293,7 +326,9 @@ src/core/       GUI-independent library (QtCore + libparted + libblkid)
 src/app/        Qt Widgets user interface
 data/           launcher, polkit policy, desktop file, AppStream metainfo, icons
 tests/          unit and end-to-end tests, fakecrypt test double
-doc/            man page and screenshots
+doc/            man page, user manual and screenshots
+translations/   Qt Linguist translations
+packaging/      Arch PKGBUILD, RPM spec, notes on the CPack packages
 ```
 
 ## License and credits
