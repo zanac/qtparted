@@ -24,7 +24,7 @@ optdepends=('e2fsprogs: ext2/ext3/ext4'
             'device-mapper: LUKS encryption'
             'lvm2: LVM2 physical volumes')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/zanac/qtparted/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('3fd6f02b363741221137f13a5aee037afb8261f6fe71ab80311b936381b4d342')
 
 build() {
     cmake -S "$pkgname-$pkgver" -B build -G Ninja \
