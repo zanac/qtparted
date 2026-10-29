@@ -390,7 +390,9 @@ FileSystemRegistry::FileSystemRegistry()
         };
         d.usagePrograms = { QStringLiteral("dumpe2fs"), QStringLiteral("resize2fs") };
         d.readUsage = ext2Usage;
-        d.limits.maxSize = floorSize(16 * TiB - 4 * KiB, MiB);
+        // 2^32 - 1 blocks for ext2/3; ext4 in 64-bit mode has no practical limit.
+        if (t != FsType::Ext4)
+            d.limits.maxSize = floorSize(16 * TiB - 4 * KiB, MiB);
         d.software = QStringLiteral("e2fsprogs");
         add(std::move(d));
     };

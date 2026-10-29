@@ -76,6 +76,21 @@ void Operation::substituteNew(PartitionVector &partitions) const
     }
 }
 
+Partition *Operation::findOriginal(PartitionVector &partitions) const
+{
+    PartitionVector *vector = &partitions;
+    if (m_original.insideExtended) {
+        const int ext = findExtended(partitions);
+        if (ext < 0)
+            return nullptr;
+        vector = &partitions[size_t(ext)].logicals;
+    }
+    for (Partition &p : *vector)
+        if (p == m_original)
+            return &p;
+    return nullptr;
+}
+
 void Operation::insertNew(PartitionVector &partitions) const
 {
     // Creating applies to unallocated space: it only matters that the new partition fits.
@@ -140,7 +155,7 @@ void OperationCreateTable::applyToVisual(Device &device)
 
 bool OperationCreateTable::execute(OperationDetail &detail)
 {
-    return Parted::createDiskLabel(m_device, m_diskType, detail);
+    return Parted::verifyDiskUnused(m_device, detail) && Parted::createDiskLabel(m_device, m_diskType, detail);
 }
 
 // --- create partition ----------------------------------------------------------------
@@ -261,7 +276,9 @@ void OperationDelete::applyToVisual(Device &device)
         // Logical partitions are always numbered consecutively from 5: renumber the following ones.
         if (m_original.status != PartitionStatus::New) {
             for (Partition &l : extended.logicals) {
-                if (l.type == PartitionType::Logical && l.number > m_original.number) {
+                // Only existing partitions: new ones get their number when they are created.
+                if (l.type == PartitionType::Logical && l.status == PartitionStatus::Real
+                    && l.number > m_original.number) {
                     const int newNumber = l.number - 1;
                     if (l.status == PartitionStatus::Real && l.path.endsWith(QString::number(l.number)))
                         l.path = l.path.left(l.path.size() - QString::number(l.number).size())
@@ -281,7 +298,8 @@ void OperationDelete::applyToVisual(Device &device)
 
 bool OperationDelete::execute(OperationDetail &detail)
 {
-    return Parted::calibrate(m_original, detail) && Parted::deletePartition(m_original, detail);
+    return Parted::calibrate(m_original, detail) && Parted::verifyTarget(m_original, false, detail)
+        && Parted::verifyFollowingLogicalsUnused(m_original, detail) && Parted::deletePartition(m_original, detail);
 }
 
 // --- format ------------------------------------------------------------------------------
@@ -320,7 +338,7 @@ bool OperationFormat::mergeWith(const Operation &candidate)
 
 bool OperationFormat::execute(OperationDetail &detail)
 {
-    if (!Parted::calibrate(m_new, detail))
+    if (!Parted::calibrate(m_new, detail) || !Parted::verifyTarget(m_new, true, detail))
         return false;
     m_original.path = m_new.path;
     if (m_new.fsType == FsType::Cleared)
@@ -347,7 +365,10 @@ void OperationSetFlags::createDescription()
 
 void OperationSetFlags::applyToVisual(Device &device)
 {
-    substituteNew(device.partitions);
+    // Only the flags change: keep everything else (e.g. the logicals of an extended
+    // partition, which other operations may have changed) as it is now.
+    if (Partition *p = findOriginal(device.partitions))
+        p->flags = m_new.flags;
 }
 
 bool OperationSetFlags::mergeWith(const Operation &candidate)
@@ -383,7 +404,8 @@ void OperationName::createDescription()
 
 void OperationName::applyToVisual(Device &device)
 {
-    substituteNew(device.partitions);
+    if (Partition *p = findOriginal(device.partitions))
+        p->name = m_new.name;
 }
 
 bool OperationName::mergeWith(const Operation &candidate)

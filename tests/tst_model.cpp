@@ -76,6 +76,7 @@ private Q_SLOTS:
     void deleteLogicalRenumbers();
     void createTableVisual();
     void allowedActionsRules();
+    void flagsOnExtendedKeepLogicals();
     void invalidPartitionRejected();
 };
 
@@ -300,6 +301,48 @@ void TestModel::allowedActionsRules()
     QVERIFY(!Session::allowedActions(img, &p, 0).format);
     QVERIFY(!Layout::canCreate(FsType::Ext4, img, 100 * MiB));
     QVERIFY(Layout::canCreate(FsType::Unformatted, img, 100 * MiB));
+}
+
+void TestModel::flagsOnExtendedKeepLogicals()
+{
+    // Regression: a flags change on the extended partition used to replace it with a
+    // snapshot including a not yet created logical, leaving a "ghost" partition after
+    // that creation was removed.
+    Device d = fakeDevice(QStringLiteral("msdos"));
+    d.partitions.clear();
+    Partition ext = realPartition(d, 1, 2048, d.length - 1, PartitionType::Extended, FsType::Extended);
+    ext.insideExtended = false;
+    ext.flags = { QStringLiteral("lba") };
+    insertUnallocated(d.path, ext.logicals, ext.start, ext.end, 512, true);
+    d.partitions.push_back(ext);
+    insertUnallocated(d.path, d.partitions, 0, d.length - 1, 512, false);
+
+    Session s;
+    s.devices.push_back(d);
+    Device disp = s.displayDevice(0);
+    const Partition un = disp.partitions[size_t(findExtended(disp.partitions))].logicals.front();
+    Layout::NewPartitionRequest req;
+    req.type = PartitionType::Logical;
+    req.beforeMiB = 1;
+    req.sizeMiB = 100;
+    req.number = s.nextNewNumber();
+    const Partition logical = Layout::makeNewPartition(disp, un, req);
+    QVERIFY(s.addOperation(std::make_unique<OperationCreate>(d, un, logical)));
+
+    disp = s.displayDevice(0);
+    const Partition extShown = disp.partitions[size_t(findExtended(disp.partitions))];
+    QVERIFY(s.addOperation(std::make_unique<OperationSetFlags>(d, extShown, QStringList())));
+    QCOMPARE(int(s.operations.size()), 2);
+
+    // Delete the new logical: its creation goes away and nothing of it may remain.
+    disp = s.displayDevice(0);
+    s.removeOperationsOnNew(disp.partitions[size_t(findExtended(disp.partitions))].logicals.front());
+    QCOMPARE(int(s.operations.size()), 1);
+    disp = s.displayDevice(0);
+    const Partition &x = disp.partitions[size_t(findExtended(disp.partitions))];
+    QVERIFY(x.flags.isEmpty());
+    QCOMPARE(int(x.logicals.size()), 1);
+    QCOMPARE(x.logicals.front().type, PartitionType::Unallocated);
 }
 
 void TestModel::invalidPartitionRejected()

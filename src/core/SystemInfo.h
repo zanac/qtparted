@@ -28,6 +28,14 @@ public:
     bool isSwapActive(const QString &devPath) const;
     // Activity for which the device has holders in sysfs (dm-crypt, LVM, md RAID ...)
     static bool hasHolders(const QString &devPath);
+    // The kernel refuses an exclusive open (EBUSY) of a device in use: mounted
+    // (including secondary btrfs devices), active swap, ZFS, md, device-mapper...
+    static bool isExclusivelyBusy(const QString &devPath);
+    // Anything the kernel considers in use, combining all of the above with a fresh look
+    // at mounts and swaps.  Used again right before changing a partition.
+    static bool isInUse(const QString &devPath);
+    // Partition device nodes the kernel currently knows for a whole disk device.
+    static QStringList kernelPartitions(const QString &diskPath);
     QStringList fstabMountPoints(const QString &devPath, const QString &uuid, const QString &label) const;
 
     // Whole disk devices worth showing, like GParted's /proc/partitions filter plus

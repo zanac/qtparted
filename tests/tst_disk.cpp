@@ -16,6 +16,7 @@
 #include "Session.h"
 #include "Worker.h"
 
+#include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
 #include <QTest>
@@ -123,6 +124,7 @@ private Q_SLOTS:
     void imageFileTableAndPartitions();
     void loopMsdosWithLogicals();
     void loopGptEspAndWholeDisk();
+    void loopSafetyChecks();
 
 private:
     bool attachLoop(const QString &image);
@@ -338,6 +340,74 @@ void TestDisk::loopGptEspAndWholeDisk()
         QVERIFY(p1->isFlagSet(QStringLiteral("esp")));
         QVERIFY(p1->isFlagSet(QStringLiteral("hidden")));
     }
+}
+
+static bool run(const QString &program, const QStringList &args)
+{
+    const CommandResult r = runCommand(program, args);
+    if (!r.ok())
+        qWarning().noquote() << program << args << r.error;
+    return r.ok();
+}
+
+void TestDisk::loopSafetyChecks()
+{
+    const QString img = m_dir.filePath(QStringLiteral("safety.img"));
+    QVERIFY(makeImage(img, 1024 * MiB));
+    if (!attachLoop(img) || !Tools::has(QStringLiteral("parted")) || !Tools::has(QStringLiteral("mkfs.btrfs")))
+        QSKIP("needs root, losetup, parted and btrfs-progs");
+
+    QVERIFY(run(QStringLiteral("parted"), { QStringLiteral("-s"), m_loop, QStringLiteral("mklabel"), QStringLiteral("gpt"),
+                                            QStringLiteral("mkpart"), QStringLiteral("a"), QStringLiteral("1MiB"), QStringLiteral("301MiB"),
+                                            QStringLiteral("mkpart"), QStringLiteral("b"), QStringLiteral("301MiB"), QStringLiteral("601MiB"),
+                                            QStringLiteral("mkpart"), QStringLiteral("c"), QStringLiteral("601MiB"), QStringLiteral("801MiB") }));
+    const QString p1 = m_loop + QStringLiteral("p1"), p2 = m_loop + QStringLiteral("p2"), p3 = m_loop + QStringLiteral("p3");
+    Parted::settle();
+    QVERIFY(run(QStringLiteral("mkfs.btrfs"), { QStringLiteral("-q"), QStringLiteral("-f"), QStringLiteral("-d"), QStringLiteral("raid1"),
+                                                QStringLiteral("-m"), QStringLiteral("raid1"), p1, p2 }));
+    QVERIFY(run(QStringLiteral("mkfs.ext4"), { QStringLiteral("-q"), QStringLiteral("-F"), p3 }));
+    const QString mnt = m_dir.filePath(QStringLiteral("mnt"));
+    QVERIFY(QDir().mkpath(mnt));
+
+    // A multi-device btrfs is listed in mountinfo under one device only: the other one
+    // must be busy too (exclusive open check).
+    QVERIFY(run(QStringLiteral("mount"), { p1, mnt }));
+    Device d = scanOne(m_loop);
+    const bool busy1 = byNumber(d, 1) && byNumber(d, 1)->busy;
+    const bool busy2 = byNumber(d, 2) && byNumber(d, 2)->busy;
+    run(QStringLiteral("umount"), { mnt });
+    QVERIFY(busy1);
+    QVERIFY(busy2);
+    QVERIFY(!Session::allowedActions(d, byNumber(d, 2), 0).format);
+
+    // A partition mounted after its format was queued is left alone when applying.
+    Session s;
+    s.devices = { scanOne(m_loop) };
+    const Partition *c = byNumber(s.devices[0], 3);
+    QVERIFY(c && !c->busy);
+    Partition fat = *c;
+    fat.fsType = FsType::Fat32;
+    QVERIFY(s.addOperation(std::make_unique<OperationFormat>(s.devices[0], *c, fat)));
+    QVERIFY(run(QStringLiteral("mount"), { p3, mnt }));
+    const bool applied = applyAll(s);
+    run(QStringLiteral("umount"), { mnt });
+    QVERIFY(!applied);
+    s.devices = { scanOne(m_loop) };
+    QCOMPARE(byNumber(s.devices[0], 3)->fsType, FsType::Ext4);
+
+    // The table changed behind QtParted's back: a queued delete must not hit whatever
+    // now sits at that sector.
+    c = byNumber(s.devices[0], 3);
+    QVERIFY(s.addOperation(std::make_unique<OperationDelete>(s.devices[0], *c)));
+    QVERIFY(run(QStringLiteral("parted"), { QStringLiteral("-s"), m_loop, QStringLiteral("rm"), QStringLiteral("3"),
+                                            QStringLiteral("mkpart"), QStringLiteral("moved"), QStringLiteral("650MiB"),
+                                            QStringLiteral("801MiB") }));
+    Parted::settle();
+    QVERIFY(!applyAll(s));
+    s.devices = { scanOne(m_loop) };
+    const Partition *moved = byNumber(s.devices[0], 3);
+    QVERIFY(moved);
+    QCOMPARE(moved->start, Sector(650 * MiB / 512));
 }
 
 QTEST_GUILESS_MAIN(TestDisk)

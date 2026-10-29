@@ -55,6 +55,8 @@ protected:
     int findIndexNew(const PartitionVector &partitions) const;
     void substituteNew(PartitionVector &partitions) const;
     void insertNew(PartitionVector &partitions) const;
+    // The partition this operation applies to, matched exactly (device, number, start, type).
+    Partition *findOriginal(PartitionVector &partitions) const;
 
     OperationType m_type;
     Device m_device;  // copy without partitions

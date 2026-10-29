@@ -598,6 +598,7 @@ void MainWindow::updateActions()
     m_actClear->setEnabled(idle && hasOps);
     m_actApply->setEnabled(idle && hasOps);
     m_actRefresh->setEnabled(idle);
+    m_actFsSupport->setEnabled(idle);  // its rescan must not race with a device scan
 
     const Partition *sel = selectedPartition();
     AllowedActions a;

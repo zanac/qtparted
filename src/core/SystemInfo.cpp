@@ -19,7 +19,11 @@
 
 #include <algorithm>
 
+#include <cerrno>
+
+#include <fcntl.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <sys/sysmacros.h>
 
 namespace QtParted {
@@ -179,6 +183,40 @@ bool SystemInfo::hasHolders(const QString &devPath)
     const QString sys = QStringLiteral("/sys/dev/block/%1:%2/holders").arg(major(d)).arg(minor(d));
     QDir dir(sys);
     return dir.exists() && !dir.entryList(QDir::AllEntries | QDir::NoDotAndDotDot).isEmpty();
+}
+
+bool SystemInfo::isExclusivelyBusy(const QString &devPath)
+{
+    if (!devNumber(devPath))
+        return false;  // only block devices can be claimed
+    const int fd = ::open(devPath.toLocal8Bit().constData(), O_RDONLY | O_EXCL | O_CLOEXEC | O_NONBLOCK);
+    if (fd >= 0) {
+        ::close(fd);
+        return false;
+    }
+    return errno == EBUSY;
+}
+
+bool SystemInfo::isInUse(const QString &devPath)
+{
+    SystemInfo sys;
+    sys.load();
+    return sys.isMounted(devPath) || sys.isSwapActive(devPath) || hasHolders(devPath)
+        || isExclusivelyBusy(devPath);
+}
+
+QStringList SystemInfo::kernelPartitions(const QString &diskPath)
+{
+    QStringList result;
+    const quint64 d = devNumber(diskPath);
+    if (!d)
+        return result;
+    const QString sysDir = QFileInfo(QStringLiteral("/sys/dev/block/%1:%2").arg(major(d)).arg(minor(d))).canonicalFilePath();
+    const QStringList entries = QDir(sysDir).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QString &e : entries)
+        if (QFileInfo::exists(sysDir + QLatin1Char('/') + e + QStringLiteral("/partition")))
+            result.append(QStringLiteral("/dev/") + e);
+    return result;
 }
 
 QStringList SystemInfo::fstabMountPoints(const QString &devPath, const QString &uuid, const QString &label) const

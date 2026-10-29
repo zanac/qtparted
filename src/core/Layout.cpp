@@ -188,9 +188,13 @@ FsLimits newPartitionLimits(FsType fsType, const Partition &un)
 
 bool canCreate(FsType fsType, const Device &device, ByteValue spaceBytes)
 {
-    if (fsType == FsType::Unformatted || fsType == FsType::Cleared)
+    if (fsType == FsType::Unformatted)
         return true;
-    if (device.isImageFile || device.readonly)
+    if (device.readonly)
+        return false;  // only unformatted partitions when the kernel can't be told (GParted)
+    if (fsType == FsType::Cleared)
+        return true;
+    if (device.isImageFile)
         return false;  // file system tools need a device node
     const FileSystem *fs = FileSystemRegistry::instance().get(fsType);
     if (!fs || !fs->support().create)

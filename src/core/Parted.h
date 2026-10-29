@@ -53,6 +53,16 @@ std::optional<Device> readDevice(const QString &path, const SystemInfo &sys);
 // --- changes, used while applying operations --------------------------------
 bool createDiskLabel(const Device &device, const QString &diskType, OperationDetail &detail);
 bool calibrate(Partition &partition, OperationDetail &detail);
+// Right before changing a partition: refuse when it is in use now (it may have been
+// mounted after the operation was queued) and, with checkKernelGeometry, when the
+// kernel's idea of its position differs from the partition table (mkfs writes through
+// the kernel device node, libparted through the table).
+bool verifyTarget(const Partition &partition, bool checkKernelGeometry, OperationDetail &detail);
+// Before deleting a logical partition: the following logical ones are renumbered by the
+// kernel, which is impossible while they are in use.
+bool verifyFollowingLogicalsUnused(const Partition &partition, OperationDetail &detail);
+// Before replacing the partition table: no partition of the disk may be in use.
+bool verifyDiskUnused(const Device &device, OperationDetail &detail);
 bool createPartition(Partition &partition, Sector minSize, OperationDetail &detail);
 bool deletePartition(const Partition &partition, OperationDetail &detail);
 bool setPartitionType(const Partition &partition, OperationDetail &detail);

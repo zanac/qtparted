@@ -20,6 +20,7 @@
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
+#include <QFile>
 #include <QFileInfo>
 #include <QMutex>
 #include <QThread>
@@ -27,10 +28,12 @@
 #include <parted/parted.h>
 
 #include <fcntl.h>
+#include <sys/sysmacros.h>
 #include <unistd.h>
 
 #include <algorithm>
 #include <cstdlib>
+#include <functional>
 #include <vector>
 
 namespace QtParted {
@@ -170,11 +173,32 @@ bool commit(PedDisk *disk)
     return ok;
 }
 
+// The libparted partition matching `p`.  Never return free space or metadata entries,
+// and refuse a partition whose type or boundaries differ from what QtParted expects:
+// acting on it would change something the user did not choose.
 PedPartition *findPartition(const PedDisk *disk, const Partition &p)
 {
-    if (p.type == PartitionType::Extended)
-        return ped_disk_extended_partition(disk);
-    return ped_disk_get_partition_by_sector(disk, p.middleSector());
+    PedPartition *lp = p.type == PartitionType::Extended ? ped_disk_extended_partition(disk)
+                                                          : ped_disk_get_partition_by_sector(disk, p.middleSector());
+    if (!lp)
+        return nullptr;
+    PedPartitionType expected = PED_PARTITION_NORMAL;
+    if (p.type == PartitionType::Logical)
+        expected = PED_PARTITION_LOGICAL;
+    else if (p.type == PartitionType::Extended)
+        expected = PED_PARTITION_EXTENDED;
+    if (lp->type != expected || !ped_partition_is_active(lp)) {
+        OperationDetail::pushLibpartedMessage(
+            tr("No %1 found at sector %2 of the partition table").arg(p.path).arg(p.middleSector()));
+        return nullptr;
+    }
+    if (lp->geom.start != p.start || lp->geom.end != p.end) {
+        OperationDetail::pushLibpartedMessage(
+            tr("The partition table changed: %1 was expected at sectors %2-%3 but sectors %4-%5 were found")
+                .arg(p.path).arg(p.start).arg(p.end).arg(lp->geom.start).arg(lp->geom.end));
+        return nullptr;
+    }
+    return lp;
 }
 
 QString geometryText(const Partition &p, bool device)
@@ -214,7 +238,8 @@ void fillPartitionDetails(Partition &p, const Device &device, const SystemInfo &
 
     if (nodeExists) {
         p.busy = sys.isMounted(p.path) || sys.isSwapActive(p.path)
-              || (p.type != PartitionType::Extended && SystemInfo::hasHolders(p.path));
+              || (p.type != PartitionType::Extended
+                  && (SystemInfo::hasHolders(p.path) || SystemInfo::isExclusivelyBusy(p.path)));
         if (sys.isMounted(p.path)) {
             p.mountPoints = sys.mountPoints(p.path);
             p.fsReadonly = sys.isMountedReadonly(p.path);
@@ -300,7 +325,10 @@ void readPartitions(Device &device, PedDisk *disk, const SystemInfo &sys)
             const FsType t = fsTypeFromLibparted(lp->fs_type->name);
             if (t != FsType::Unknown) {
                 p.fsType = t;
-                p.messages.clear();
+                const QString unknown = tr("Unable to detect file system! Possible reasons are:");
+                p.messages.erase(std::remove_if(p.messages.begin(), p.messages.end(),
+                                                [&](const QString &m) { return m.startsWith(unknown); }),
+                                 p.messages.end());
             }
         }
         if (p.type == PartitionType::Logical && p.isFlagSet(QStringLiteral("esp")))
@@ -442,6 +470,13 @@ std::optional<Device> readDevice(const QString &path, const SystemInfo &sys)
     if (!device.isImageFile)
         device.serial = SystemInfo::serialNumber(path);
 
+    // In use as a whole: mounted, swap, held by device-mapper/md, or claimed exclusively.
+    auto wholeDiskBusy = [&]() {
+        return !device.isImageFile
+            && (sys.isMounted(path) || sys.isSwapActive(path) || SystemInfo::hasHolders(path)
+                || SystemInfo::isExclusivelyBusy(path));
+    };
+
     // 1/4: file system on the whole disk device (no partition table)
     const ProbeResult whole = Probe::path(path, true);
     if (whole.ptType.isEmpty() && whole.fsType != FsType::Unknown) {
@@ -452,7 +487,7 @@ std::optional<Device> readDevice(const QString &path, const SystemInfo &sys)
         p.fsLabel = whole.label;
         p.uuid = whole.uuid;
         if (!device.isImageFile) {
-            p.busy = sys.isMounted(path) || sys.isSwapActive(path) || SystemInfo::hasHolders(path);
+            p.busy = wholeDiskBusy();
             if (sys.isMounted(path))
                 p.mountPoints = sys.mountPoints(path);
             FileSystemRegistry::instance().readUsage(p);
@@ -470,8 +505,12 @@ std::optional<Device> readDevice(const QString &path, const SystemInfo &sys)
         device.diskType = tr("unrecognized");
         device.maxPrimaries = 1;
         Partition p = Partition::makeUnpartitioned(path, QString(), FsType::Unallocated, device.length,
-                                                   device.sectorSize, false);
+                                                   device.sectorSize, wholeDiskBusy());
         p.messages += OperationDetail::takeLibpartedMessages();
+        if (p.busy) {
+            device.highestBusy = 1;
+            p.messages.append(tr("The device is in use."));
+        }
         device.partitions.push_back(p);
         return device;
     }
@@ -481,8 +520,12 @@ std::optional<Device> readDevice(const QString &path, const SystemInfo &sys)
         device.diskType = tr("unrecognized");
         device.maxPrimaries = 1;
         Partition p = Partition::makeUnpartitioned(path, QString(), FsType::Unallocated, device.length,
-                                                   device.sectorSize, false);
+                                                   device.sectorSize, wholeDiskBusy());
         p.messages += OperationDetail::takeLibpartedMessages();
+        if (p.busy) {
+            device.highestBusy = 1;
+            p.messages.append(tr("The device is in use."));
+        }
         device.partitions.push_back(p);
         return device;
     }
@@ -492,7 +535,9 @@ std::optional<Device> readDevice(const QString &path, const SystemInfo &sys)
         device.diskType = QStringLiteral("loop");
         device.maxPrimaries = 1;
         Partition p = Partition::makeUnpartitioned(path, path, FsType::Unknown, device.length, device.sectorSize,
-                                                   false);
+                                                   wholeDiskBusy());
+        if (p.busy)
+            device.highestBusy = 1;
         p.messages.append(tr("Unable to detect file system! Possible reasons are:") + QLatin1String("\n- ")
                           + tr("The file system is damaged") + QLatin1String("\n- ")
                           + tr("The file system is unknown to QtParted") + QLatin1String("\n- ")
@@ -512,6 +557,21 @@ std::optional<Device> readDevice(const QString &path, const SystemInfo &sys)
     device.messages += OperationDetail::takeLibpartedMessages();
 
     readPartitions(device, disk.disk, sys);
+
+    // The whole disk is used by device-mapper (multipath, dmraid) or md: hands off.
+    if (!device.isImageFile && SystemInfo::hasHolders(path)) {
+        std::function<void(PartitionVector &)> markBusy = [&](PartitionVector &v) {
+            for (Partition &p : v) {
+                p.busy = true;
+                markBusy(p.logicals);
+            }
+        };
+        markBusy(device.partitions);
+        device.readonly = true;
+        device.highestBusy = std::max(device.highestBusy, 1);
+        device.messages.append(tr("%1 is used as a whole by another device (device-mapper, RAID).").arg(path));
+        return device;
+    }
 
     if (device.highestBusy > 0 && !device.isImageFile) {
         // Can the kernel be told about changes while partitions are in use?
@@ -587,6 +647,84 @@ bool calibrate(Partition &p, OperationDetail &detail)
     return ok;
 }
 
+static QString sysfsValue(const QString &devPath, const QString &attribute)
+{
+    const quint64 d = SystemInfo::devNumber(devPath);
+    if (!d)
+        return QString();
+    QFile f(QStringLiteral("/sys/dev/block/%1:%2/%3").arg(major(d)).arg(minor(d)).arg(attribute));
+    if (!f.open(QIODevice::ReadOnly))
+        return QString();
+    return QString::fromLatin1(f.readAll()).trimmed();
+}
+
+bool verifyTarget(const Partition &p, bool checkKernelGeometry, OperationDetail &detail)
+{
+    OperationDetail &od = detail.addChild(tr("check that %1 is not in use").arg(p.path));
+    if (SystemInfo::isInUse(p.path)) {
+        od.addChild(tr("%1 is in use (mounted, active swap, or used by another device). "
+                       "Nothing was changed on it.").arg(p.path),
+                    OperationDetail::Status::None, OperationDetail::Font::Italic);
+        od.setStatus(OperationDetail::Status::Error);
+        return false;
+    }
+    if (checkKernelGeometry && p.type != PartitionType::Unpartitioned && QFileInfo::exists(p.path)) {
+        // sysfs reports start and size in 512 byte units.
+        bool okStart = false, okSize = false;
+        const qint64 start = sysfsValue(p.path, QStringLiteral("start")).toLongLong(&okStart);
+        const qint64 size = sysfsValue(p.path, QStringLiteral("size")).toLongLong(&okSize);
+        const qint64 factor = p.sectorSize / 512;
+        if (okStart && okSize && (start != p.start * factor || size != p.length() * factor)) {
+            od.addChild(tr("The kernel sees %1 at a different position than the partition table "
+                           "(kernel: start %2, size %3; table: start %4, size %5, in 512 byte units). "
+                           "Refresh the devices or reboot before changing it.")
+                            .arg(p.path).arg(start).arg(size).arg(p.start * factor).arg(p.length() * factor),
+                        OperationDetail::Status::None, OperationDetail::Font::Italic);
+            od.setStatus(OperationDetail::Status::Error);
+            return false;
+        }
+    }
+    od.setStatus(OperationDetail::Status::Success);
+    return true;
+}
+
+bool verifyFollowingLogicalsUnused(const Partition &p, OperationDetail &detail)
+{
+    if (p.type != PartitionType::Logical)
+        return true;
+    OperationDetail &od = detail.addChild(tr("check that the logical partitions after %1 are not in use").arg(p.path));
+    for (const QString &part : SystemInfo::kernelPartitions(p.devicePath)) {
+        const int number = sysfsValue(part, QStringLiteral("partition")).toInt();
+        if (number > p.number && SystemInfo::isInUse(part)) {
+            od.addChild(tr("%1 is in use and would be renumbered. Unmount it first.").arg(part),
+                        OperationDetail::Status::None, OperationDetail::Font::Italic);
+            od.setStatus(OperationDetail::Status::Error);
+            return false;
+        }
+    }
+    od.setStatus(OperationDetail::Status::Success);
+    return true;
+}
+
+bool verifyDiskUnused(const Device &device, OperationDetail &detail)
+{
+    OperationDetail &od = detail.addChild(tr("check that no partition of %1 is in use").arg(device.path));
+    QStringList busy;
+    if (!device.isImageFile && SystemInfo::hasHolders(device.path))
+        busy.append(device.path);
+    for (const QString &part : SystemInfo::kernelPartitions(device.path))
+        if (SystemInfo::isInUse(part))
+            busy.append(part);
+    if (!busy.isEmpty()) {
+        od.addChild(tr("In use: %1. Nothing was changed.").arg(busy.join(QStringLiteral(", "))),
+                    OperationDetail::Status::None, OperationDetail::Font::Italic);
+        od.setStatus(OperationDetail::Status::Error);
+        return false;
+    }
+    od.setStatus(OperationDetail::Status::Success);
+    return true;
+}
+
 bool createPartition(Partition &p, Sector minSize, OperationDetail &detail)
 {
     OperationDetail &od = detail.addChild(tr("create empty partition"));
@@ -617,15 +755,16 @@ bool createPartition(Partition &p, Sector minSize, OperationDetail &detail)
                 if (constraint) {
                     if (minSize > 0 && p.fsType != FsType::Xfs)
                         constraint->min_size = minSize;
-                    if (ped_disk_add_partition(disk.disk, lp, constraint) && commit(disk.disk)) {
+                    if (!ped_disk_add_partition(disk.disk, lp, constraint)) {
+                        ped_partition_destroy(lp);  // not owned by the disk
+                    } else if (commit(disk.disk)) {
                         p.path = partitionPath(lp);
                         p.number = lp->num;
                         p.start = lp->geom.start;
                         p.end = lp->geom.end;
                         ok = true;
-                    } else {
-                        ped_partition_destroy(lp);
                     }
+                    // After a successful add the disk owns lp, even when the commit failed.
                     ped_constraint_destroy(constraint);
                 } else {
                     ped_partition_destroy(lp);
