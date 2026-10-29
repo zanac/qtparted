@@ -18,3 +18,10 @@
 The program is installed in `libexec/qtparted/` and started by the `qtparted`
 launcher through pkexec; the polkit policy names the program's path, so a package
 must keep both from the same build.
+
+## Releases
+
+`.github/workflows/release.yml` makes a release: run it from the Actions tab on
+`main` with the tag (e.g. `v1.0.0`). It checks that `CMakeLists.txt` has that
+version and that `doc/release-notes/<tag>.md` exists, builds the .deb and the source
+tarball, creates the tag and publishes the release with those files.

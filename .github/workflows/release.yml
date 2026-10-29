@@ -1,0 +1,54 @@
+name: Release
+
+# Run from the Actions tab ("Run workflow") on main: builds the packages, creates the
+# tag and the GitHub release with the notes in doc/release-notes/<tag>.md.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to create, e.g. v1.0.0"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check version and notes
+        run: |
+          TAG="${{ inputs.tag }}"
+          VERSION="${TAG#v}"
+          grep -q "VERSION ${VERSION}" CMakeLists.txt || { echo "CMakeLists.txt is not at ${VERSION}"; exit 1; }
+          test -f "doc/release-notes/${TAG}.md" || { echo "missing doc/release-notes/${TAG}.md"; exit 1; }
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ pkg-config \
+            qt6-base-dev qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools libparted-dev libblkid-dev
+
+      - name: Build the .deb
+        run: scripts/build.sh -b build -k deb
+
+      - name: Source tarball and checksums
+        run: |
+          mkdir dist
+          git archive --format=tar --prefix="qtparted-${VERSION}/" HEAD | xz -9 > "dist/qtparted-${VERSION}.tar.xz"
+          cp build/qtparted_*.deb dist/
+          cp scripts/build.sh dist/build.sh
+          (cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ inputs.tag }}" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "QtParted ${VERSION}" \
+            --notes-file "doc/release-notes/${{ inputs.tag }}.md"
