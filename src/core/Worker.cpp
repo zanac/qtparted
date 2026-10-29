@@ -9,6 +9,8 @@
  */
 #include "Worker.h"
 
+#include "Luks.h"
+
 #include "Operation.h"
 #include "Parted.h"
 #include "SystemInfo.h"
@@ -24,6 +26,7 @@ std::vector<Device> scanDevices(const QStringList &userPaths, const std::functio
 {
     SystemInfo sys;
     sys.load();
+    Luks::loadCache();
 
     QStringList paths;
     if (userPaths.isEmpty()) {

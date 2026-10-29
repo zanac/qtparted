@@ -34,6 +34,13 @@ struct AllowedActions {
     bool check = false;
     bool label = false;
     bool uuid = false;
+
+    // Immediate actions changing the busy state (not queued).
+    enum class Toggle { None, Unmount, SwapOn, SwapOff, ActivateVg, DeactivateVg };
+    bool openCrypt = false;   // LUKS: open (closed) or close (open), see `cryptIsOpen`
+    bool cryptIsOpen = false;
+    Toggle toggle = Toggle::None;
+    QStringList mountOn;      // fstab mount points offered by "Mount on"
 };
 
 // The devices as scanned plus the pending operations: the model behind the main window.
@@ -54,6 +61,8 @@ public:
     // Deleting a not yet created partition removes every operation on it instead.
     void removeOperationsOnNew(const Partition &partition);
     int pendingCount(const QString &devicePath) const;
+    // Operations queued on this partition (GParted's partition_in_operation_queue_count).
+    int pendingCountFor(const Partition &partition) const;
 
     int nextNewNumber() const;  // "New Partition #N"
 

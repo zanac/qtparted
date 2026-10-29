@@ -104,35 +104,40 @@ QVariant PartitionTreeModel::data(const QModelIndex &index, int role) const
     if (role == KeyRole)
         return Ui::partitionKey(*p);
 
-    const bool sizeKnown = p->usageKnown() && fsIsReal(p->fsType);
+    const Partition &f = p->filesystem();
+    const bool sizeKnown = p->usageKnown() && (fsIsReal(p->fsType) || p->fsType == FsType::Luks);
     if (role == Qt::DisplayRole) {
         switch (index.column()) {
         case ColPartition:  return p->displayPath();
         case ColName:       return p->name;
-        case ColFileSystem: return p->fsType == FsType::Unallocated ? QString() : fsName(p->fsType);
-        case ColMountPoint: return p->mountPointsText();
-        case ColLabel:      return p->fsLabel;
+        case ColFileSystem: return Ui::fsDisplayName(*p);
+        case ColMountPoint: return f.mountPointsText();
+        case ColLabel:      return f.fsLabel;
         case ColSize:       return formatSize(p->length(), p->sectorSize);
-        case ColUsed:       return sizeKnown ? formatSize(p->sectorsUsed, p->sectorSize) : QStringLiteral("---");
-        case ColUnused:     return sizeKnown ? formatSize(p->sectorsUnused, p->sectorSize) : QStringLiteral("---");
+        case ColUsed:       return sizeKnown ? formatSize(p->usedSectors(), p->sectorSize) : QStringLiteral("---");
+        case ColUnused:     return sizeKnown ? formatSize(p->unusedSectors(), p->sectorSize) : QStringLiteral("---");
         case ColFlags:      return p->flags.join(QStringLiteral(", "));
         }
     } else if (role == Qt::DecorationRole) {
         if (index.column() == ColFileSystem && p->fsType != FsType::Unallocated)
-            return Ui::fsIcon(p->fsType);
+            return Ui::fsIcon(Ui::displayFsType(*p));
         if (index.column() == ColPartition) {
             if (p->busy)
                 return Ui::icon("object-locked", QStyle::SP_VistaShield);
-            if (!p->messages.isEmpty())
+            if (!p->allMessages().isEmpty())
                 return Ui::icon("dialog-warning", QStyle::SP_MessageBoxWarning);
             if (p->status == PartitionStatus::New)
                 return Ui::icon("list-add", QStyle::SP_FileIcon);
         }
     } else if (role == Qt::ToolTipRole) {
         if (index.column() == ColPartition) {
-            QString tip = Ui::partitionTypeText(p->type) + QLatin1String(" — ") + Ui::statusText(*p);
-            if (!p->messages.isEmpty())
-                tip += QLatin1String("\n\n") + p->messages.join(QLatin1String("\n\n"));
+            QString tip = Ui::partitionTypeText(p->type) + QLatin1String(" — ") + Ui::statusText(f);
+            if (p->fsType == FsType::Luks)
+                tip += QLatin1String(" — ") + (p->isOpenLuks() ? tr("encryption open as %1").arg(p->luks.path())
+                                                               : tr("encryption closed"));
+            const QStringList msgs = p->allMessages();
+            if (!msgs.isEmpty())
+                tip += QLatin1String("\n\n") + msgs.join(QLatin1String("\n\n"));
             return tip;
         }
     } else if (role == Qt::TextAlignmentRole) {

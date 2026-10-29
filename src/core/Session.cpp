@@ -133,6 +133,16 @@ int Session::pendingCount(const QString &devicePath) const
     return n;
 }
 
+int Session::pendingCountFor(const Partition &p) const
+{
+    int n = 0;
+    for (const auto &op : operations)
+        if (op->device().path == p.devicePath
+            && (op->original().path == p.path || op->partitionNew().path == p.path))
+            ++n;
+    return n;
+}
+
 int Session::nextNewNumber() const
 {
     int highest = 0;
@@ -146,23 +156,24 @@ int Session::nextNewNumber() const
 AllowedActions Session::allowedActions(const Device &display, const Partition *sel, int pendingOnDevice,
                                       const Partition *clipboard)
 {
+    // Port of GParted's Win_GParted::set_valid_operations().
     AllowedActions a;
     a.createTable = display.length > 0 && display.highestBusy == 0 && pendingOnDevice == 0;
     if (!sel)
         return a;
     a.info = true;
 
-    const FsSupport fs = FileSystemRegistry::instance().support(sel->fsType);
+    // The partition directly holding the file system: inside open LUKS encryption.
+    const Partition &fsPart = sel->filesystem();
+    const FsSupport fs = FileSystemRegistry::instance().support(fsPart.fsType);
+    const FsSupport enc = FileSystemRegistry::instance().support(FsType::Luks);
     const bool real = sel->status == PartitionStatus::Real;
     const bool isNew = sel->status == PartitionStatus::New;
+    const bool isLuks = sel->fsType == FsType::Luks;
+    const bool openLuks = sel->isOpenLuks();
     // File system tools need a device node: no file system changes on image files.
     const bool fsTools = !display.isImageFile;
-
     const bool inTable = sel->isPartitionInTable();
-    if (inTable && display.partitionNamingSupported() && !display.readonly && (real || isNew))
-        a.name = true;
-    if (inTable && real && !display.readonly && !sel->availableFlags.isEmpty())
-        a.flags = true;
 
     if (sel->status == PartitionStatus::Copy) {
         // A pending paste: it can only be removed again (GParted).
@@ -170,22 +181,57 @@ AllowedActions Session::allowedActions(const Device &display, const Partition *s
         return a;
     }
 
-    if (sel->busy) {
+    // Open/close encryption, while the file system inside is not in use.
+    if (real && isLuks && fsTools && !fsPart.busy && (sel->busy ? openLuks : true)) {
+        a.openCrypt = true;
+        a.cryptIsOpen = sel->busy;
+    }
+
+    // Mount/unmount and swapon/swapoff.
+    if (real && fsTools && sel->type != PartitionType::Extended && fsPart.fsType != FsType::Lvm2Pv
+        && fsPart.fsType != FsType::Luks && fsPart.fsType != FsType::LinuxSwraid
+        && fsPart.fsType != FsType::Ataraid && fsPart.fsType != FsType::Bcache && fsPart.fsType != FsType::Jbd
+        && fsPart.fsType != FsType::Unallocated && fsPart.fsType != FsType::Extended) {
+        if (fsPart.fsType == FsType::LinuxSwap)
+            a.toggle = fsPart.busy ? AllowedActions::Toggle::SwapOff : AllowedActions::Toggle::SwapOn;
+        else if (fsPart.busy && !fsPart.mountPoints.isEmpty())
+            a.toggle = AllowedActions::Toggle::Unmount;
+        else if (!fsPart.busy && !fsPart.mountPoints.isEmpty())
+            a.mountOn = fsPart.mountPoints;
+    }
+    // Volume Group activation, the VG name being shown as the mount point.
+    if (real && fsTools && fsPart.fsType == FsType::Lvm2Pv && !fsPart.mountPoints.isEmpty())
+        a.toggle = fsPart.busy ? AllowedActions::Toggle::DeactivateVg : AllowedActions::Toggle::ActivateVg;
+
+    if (inTable && display.partitionNamingSupported() && !display.readonly && (real || isNew))
+        a.name = true;
+    if (inTable && real && !display.readonly && !sel->availableFlags.isEmpty())
+        a.flags = true;
+
+    if (fsPart.busy) {
         // Online changes need the kernel to accept a changed partition table.
-        if (!display.readonly && fsTools && inTable && (fs.canResizeOnline() || sel->type == PartitionType::Extended))
-            a.resize = true;
+        if (!display.readonly && fsTools && inTable) {
+            if (!isLuks && fs.canResizeOnline())
+                a.resize = true;
+            if (openLuks && ((enc.onlineGrow != FsMethod::None && fs.onlineGrow != FsMethod::None)
+                             || (enc.onlineShrink != FsMethod::None && fs.onlineShrink != FsMethod::None)))
+                a.resize = true;
+            if (sel->type == PartitionType::Extended)
+                a.resize = true;
+        }
         if (real && fsTools && fs.onlineWriteLabel)
             a.label = true;
-        // Only informational and online actions while the file system is in use.
+        // Only unmount/swapoff/VG deactivation and online actions while in use.
         return a;
     }
 
     if (sel->fsType == FsType::Unallocated)
         a.create = true;
     if (sel->type == PartitionType::Unallocated) {
+        // Encrypted content can't be pasted into a plain partition (GParted).
         if (clipboard && !display.readonly && clipboard->sectorSize == display.sectorSize
-            && clipboard->fsType != FsType::Luks
-            && Layout::pasteRequiredBytes(display, *sel, *clipboard) <= sel->byteLength())
+            && clipboard->filesystem().fsType != FsType::Luks
+            && Layout::pasteRequiredBytes(display, *sel, clipboard->filesystem()) <= sel->byteLength())
             a.paste = true;
         return a;
     }
@@ -201,10 +247,22 @@ AllowedActions Session::allowedActions(const Device &display, const Partition *s
          || sel->type == PartitionType::Unpartitioned)
         && sel->fsType != FsType::Unallocated) {
         a.format = fsTools && !display.readonly;
-        a.remove = sel->type != PartitionType::Unpartitioned && !display.readonly;
-        if (!display.readonly && inTable && (isNew || (fsTools && fs.canResize())))
-            a.resize = true;
-        if (real && fsTools && fs.copy != FsMethod::None)
+        // Open encryption keeps the partition busy: close it before deleting.
+        a.remove = sel->type != PartitionType::Unpartitioned && !display.readonly && !sel->busy;
+        if (!display.readonly && inTable) {
+            if (isNew)
+                a.resize = true;
+            else if (fsTools && !isLuks && fs.canResize())
+                a.resize = true;
+            else if (fsTools && isLuks && !sel->busy && (enc.grow != FsMethod::None || enc.move != FsMethod::None))
+                a.resize = true;
+            else if (fsTools && openLuks
+                     && ((enc.onlineGrow != FsMethod::None && fs.grow != FsMethod::None)
+                         || (enc.onlineShrink != FsMethod::None && fs.shrink != FsMethod::None)))
+                a.resize = true;
+        }
+        // Closed encryption is only copied while open (its content).
+        if (real && fsTools && fsPart.fsType != FsType::Luks && fs.copy != FsMethod::None)
             a.copy = true;
         if (real && fsTools && fs.writeLabel)
             a.label = true;
@@ -213,7 +271,7 @@ AllowedActions Session::allowedActions(const Device &display, const Partition *s
         if (real && fsTools && fs.check)
             a.check = true;
         if (clipboard && real && fsTools && !display.readonly && clipboard->sectorSize == display.sectorSize
-            && clipboard->byteLength() <= sel->byteLength()
+            && clipboard->filesystem().byteLength() <= fsPart.byteLength() && !sel->busy
             && !(clipboard->devicePath == sel->devicePath && clipboard->start <= sel->end
                  && sel->start <= clipboard->end))
             a.paste = true;

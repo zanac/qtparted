@@ -107,7 +107,7 @@ void DiskMapWidget::paintBox(QPainter &painter, const Box &box) const
     const Partition &p = box.partition;
     const QPalette &pal = palette();
     const QRect r = box.rect;
-    const QColor frame = Ui::fsColor(p.fsType);
+    const QColor frame = Ui::fsColor(p.type == PartitionType::Extended ? p.fsType : Ui::displayFsType(p));
 
     if (p.type == PartitionType::Extended) {
         painter.fillRect(r, frame);
@@ -122,10 +122,10 @@ void DiskMapWidget::paintBox(QPainter &painter, const Box &box) const
             if (p.fsType == FsType::Unallocated) {
                 painter.fillRect(inner, QColor(frame.red(), frame.green(), frame.blue(), 60));
             } else if (p.usageKnown() && p.length() > 0) {
-                const int usedW = int(double(inner.width()) * double(p.sectorsUsed) / double(p.length()));
+                const int usedW = int(double(inner.width()) * double(p.usedSectors()) / double(p.length()));
                 painter.fillRect(QRect(inner.left(), inner.top(), usedW, inner.height()), Ui::usedColor(pal));
-                if (p.sectorsUnallocated > 0) {
-                    const int unW = int(double(inner.width()) * double(p.sectorsUnallocated) / double(p.length()));
+                if (p.unallocatedSectors() > 0) {
+                    const int unW = int(double(inner.width()) * double(p.unallocatedSectors()) / double(p.length()));
                     painter.fillRect(QRect(inner.right() + 1 - unW, inner.top(), unW, inner.height()),
                                      QColor(0xA9, 0xA9, 0xA9, 110));
                 }
@@ -229,12 +229,12 @@ bool DiskMapWidget::event(QEvent *event)
         if (const Box *b = hitTest(help->pos())) {
             const Partition &p = b->partition;
             QString tip = QStringLiteral("<b>%1</b><br>%2 &middot; %3")
-                              .arg(p.displayPath().toHtmlEscaped(), fsName(p.fsType).toHtmlEscaped(),
+                              .arg(p.displayPath().toHtmlEscaped(), Ui::fsDisplayName(p).toHtmlEscaped(),
                                    formatSize(p.length(), p.sectorSize));
             if (p.usageKnown())
-                tip += QLatin1String("<br>") + tr("Used: %1").arg(formatSize(p.sectorsUsed, p.sectorSize));
-            if (!p.mountPoints.isEmpty())
-                tip += QLatin1String("<br>") + p.mountPointsText().toHtmlEscaped();
+                tip += QLatin1String("<br>") + tr("Used: %1").arg(formatSize(p.usedSectors(), p.sectorSize));
+            if (!p.filesystem().mountPoints.isEmpty())
+                tip += QLatin1String("<br>") + p.filesystem().mountPointsText().toHtmlEscaped();
             QToolTip::showText(help->globalPos(), tip, this);
         } else {
             QToolTip::hideText();

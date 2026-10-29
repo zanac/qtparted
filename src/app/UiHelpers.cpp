@@ -114,6 +114,20 @@ QString partitionTypeText(PartitionType type)
     return QString();
 }
 
+QString fsDisplayName(const Partition &p)
+{
+    if (p.fsType == FsType::Luks) {
+        const QString enc = QCoreApplication::translate("Ui", "[Encrypted]");
+        return p.isOpenLuks() ? enc + QLatin1Char(' ') + fsName(p.encrypted->fsType) : enc;
+    }
+    return p.fsType == FsType::Unallocated ? QString() : fsName(p.fsType);
+}
+
+FsType displayFsType(const Partition &p)
+{
+    return p.filesystem().fsType;
+}
+
 QString statusText(const Partition &p)
 {
     if (p.status == PartitionStatus::New)

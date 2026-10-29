@@ -18,7 +18,11 @@
 #include "DialogFsSupport.h"
 #include "DialogName.h"
 #include "DialogNewPartition.h"
+#include "BusyActions.h"
+#include "Command.h"
 #include "DialogPartitionInfo.h"
+#include "DialogPassword.h"
+#include "Luks.h"
 #include "DialogResizeMove.h"
 #include "DiskMapWidget.h"
 #include "Layout.h"
@@ -31,6 +35,7 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDockWidget>
+#include <QEventLoop>
 #include <QFormLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -160,6 +165,15 @@ void MainWindow::createActions()
     m_actUuid = new QAction(Ui::icon("view-refresh", QStyle::SP_BrowserReload), tr("New UU&ID"), this);
     connect(m_actUuid, &QAction::triggered, this, &MainWindow::actionNewUuid);
 
+    m_actCrypt = new QAction(Ui::icon("unlock", QStyle::SP_DialogOkButton), tr("&Open Encryption"), this);
+    connect(m_actCrypt, &QAction::triggered, this, &MainWindow::actionToggleCrypt);
+
+    m_actBusy = new QAction(Ui::icon("media-mount", QStyle::SP_DriveHDIcon), tr("&Unmount"), this);
+    connect(m_actBusy, &QAction::triggered, this, &MainWindow::actionToggleBusy);
+
+    m_mountMenu = new QMenu(tr("&Mount on"), this);
+    m_mountMenu->setIcon(Ui::icon("media-mount", QStyle::SP_DriveHDIcon));
+
     m_actName = new QAction(Ui::icon("edit-rename", QStyle::SP_FileDialogContentsView), tr("&Name Partition"), this);
     connect(m_actName, &QAction::triggered, this, &MainWindow::actionName);
 
@@ -228,6 +242,10 @@ void MainWindow::createMenus()
     m_partitionMenu->addAction(m_actCheck);
     m_partitionMenu->addAction(m_actLabel);
     m_partitionMenu->addAction(m_actUuid);
+    m_partitionMenu->addSeparator();
+    m_partitionMenu->addAction(m_actCrypt);
+    m_partitionMenu->addAction(m_actBusy);
+    m_mountMenuAction = m_partitionMenu->addMenu(m_mountMenu);
     m_partitionMenu->addSeparator();
     m_partitionMenu->addAction(m_actInfo);
 
@@ -676,6 +694,30 @@ void MainWindow::updateActions()
     m_actLabel->setEnabled(a.label);
     m_actUuid->setEnabled(a.uuid);
     m_actName->setEnabled(a.name);
+
+    // Open/close encryption, then mount/unmount, swapon/swapoff or VG (de)activation;
+    // "Mount on" replaces the toggle for an unmounted file system with fstab entries.
+    m_actCrypt->setText(a.cryptIsOpen ? tr("Close Encryption") : tr("Open Encryption"));
+    m_actCrypt->setIcon(Ui::icon(a.cryptIsOpen ? "lock" : "unlock", QStyle::SP_DialogOkButton));
+    m_actCrypt->setEnabled(a.openCrypt);
+    m_actCrypt->setVisible(sel && sel->fsType == FsType::Luks);
+    QString toggleText = tr("&Unmount");
+    switch (a.toggle) {
+    case AllowedActions::Toggle::SwapOn:       toggleText = tr("&Swapon"); break;
+    case AllowedActions::Toggle::SwapOff:      toggleText = tr("&Swapoff"); break;
+    case AllowedActions::Toggle::ActivateVg:   toggleText = tr("&Activate"); break;
+    case AllowedActions::Toggle::DeactivateVg: toggleText = tr("&Deactivate"); break;
+    default: break;
+    }
+    m_actBusy->setText(toggleText);
+    m_actBusy->setEnabled(a.toggle != AllowedActions::Toggle::None);
+    m_mountMenu->clear();
+    for (const QString &mp : a.mountOn) {
+        QAction *act = m_mountMenu->addAction(mp);
+        connect(act, &QAction::triggered, this, [this, mp]() { actionMountOn(mp); });
+    }
+    m_mountMenuAction->setVisible(!a.mountOn.isEmpty());
+    m_actBusy->setVisible(a.mountOn.isEmpty());
     m_actFlags->setEnabled(a.flags);
     m_actInfo->setEnabled(a.info);
     m_formatMenu->setEnabled(a.format);
@@ -784,6 +826,8 @@ void MainWindow::actionDelete()
         refreshVisual();
         return;
     }
+    if (sel->fsType == FsType::Lvm2Pv && !sel->mountPoints.isEmpty() && !confirmRemoveLvmPv(*sel, RemovePv::Delete))
+        return;
     const Partition victim = *sel;
     m_selectedKey.clear();
     addOperation(std::make_unique<OperationDelete>(m_session.devices[size_t(m_current)], victim));
@@ -794,12 +838,14 @@ void MainWindow::actionFormat(FsType type)
     const Partition *sel = selectedPartition();
     if (!sel)
         return;
+    // Inside open encryption the file system gets the space after the LUKS overhead.
+    const ByteValue space = sel->filesystem().byteLength();
     if (const FileSystem *fs = FileSystemRegistry::instance().get(type)) {
         const FsLimits l = fs->limits();
-        if (sel->byteLength() < l.minSize || (l.maxSize && sel->byteLength() > l.maxSize)) {
+        if (space < l.minSize || (l.maxSize && space > l.maxSize)) {
             QMessageBox box(QMessageBox::Critical, QStringLiteral("QtParted"),
                             tr("Cannot format this file system to %1").arg(fsName(type)), QMessageBox::Ok, this);
-            box.setInformativeText(sel->byteLength() < l.minSize
+            box.setInformativeText(space < l.minSize
                                        ? tr("A %1 file system requires a partition of at least %2.")
                                              .arg(fsName(type), formatBytes(l.minSize))
                                        : tr("A partition with a %1 file system has a maximum size of %2.")
@@ -808,17 +854,31 @@ void MainWindow::actionFormat(FsType type)
             return;
         }
     }
+    if (sel->filesystem().fsType == FsType::Lvm2Pv && !sel->filesystem().mountPoints.isEmpty()
+        && !confirmRemoveLvmPv(sel->filesystem(), RemovePv::Format))
+        return;
     Partition np = *sel;
-    np.fsType = type;
-    np.fsLabel.clear();
-    np.uuid.clear();
-    np.mountPoints.clear();
-    np.messages.clear();
-    np.clearUsage();
-    np.busy = false;
+    if (sel->fsType == FsType::Luks && !sel->isOpenLuks()) {
+        // Formatting closed encryption replaces it with a plain file system (GParted).
+        np.luks = LuksMapping();
+        np.luksHeader = 0;
+        np.encrypted.reset();
+    }
+    {
+        Partition &f = np.filesystem();
+        f.fsType = type;
+        f.fsLabel.clear();
+        f.uuid.clear();
+        f.mountPoints.clear();
+        f.messages.clear();
+        f.clearUsage();
+        if (!np.isOpenLuks())
+            f.busy = false;
+    }
     if (np.status == PartitionStatus::Real)
         np.status = PartitionStatus::Formatted;
-    Parted::composePartitionFlags(np, m_display.diskType);
+    if (!np.isOpenLuks())
+        Parted::composePartitionFlags(np, m_display.diskType);
     const Partition original = *sel;
     addOperation(std::make_unique<OperationFormat>(m_session.devices[size_t(m_current)], original, np));
 }
@@ -829,8 +889,14 @@ void MainWindow::actionResizeMove()
     if (!sel)
         return;
     const Partition original = *sel;
+    if (original.filesystem().busy && original.filesystem().fsReadonly) {
+        QMessageBox::information(this, tr("Unable to resize read-only file system %1").arg(original.path),
+                                 tr("The file system can not be resized while it is mounted read-only.\n"
+                                    "Either unmount the file system or remount it read-write."));
+        return;
+    }
     DialogResizeMove dialog(m_display, original, this);
-    if (dialog.exec() != QDialog::Accepted || !dialog.changed())
+    if (dialog.exec() != QDialog::Accepted || !dialog.changed() || !passphraseForResize(original))
         return;
     const Partition np = dialog.result();
     if (np.start != original.start && original.status == PartitionStatus::Real
@@ -866,7 +932,10 @@ void MainWindow::actionPaste()
     const Partition *sel = selectedPartition();
     if (!sel || !m_clipboard)
         return;
-    const Partition copied = *m_clipboard;
+    // The source operation keeps the copied partition; the dialogs see its content (the
+    // file system inside the encryption when open).
+    const Partition source = *m_clipboard;
+    const Partition copied = source.filesystem();
     const Device &device = m_session.devices[size_t(m_current)];
     if (sel->type == PartitionType::Unallocated) {
         int primaries = 0;
@@ -885,11 +954,19 @@ void MainWindow::actionPaste()
             return;
         const Partition np = dialog.result();
         m_selectedKey = Ui::partitionKey(np);
-        addOperation(std::make_unique<OperationCopy>(device, unallocated, np, copied));
+        addOperation(std::make_unique<OperationCopy>(device, unallocated, np, source));
         return;
     }
     // Over an existing partition: its contents are replaced.
-    const Partition destination = *sel;
+    if (sel->fsType == FsType::Lvm2Pv && !sel->mountPoints.isEmpty() && !confirmRemoveLvmPv(*sel, RemovePv::Paste))
+        return;
+    Partition destination = *sel;
+    if (destination.fsType == FsType::Luks) {
+        // Pasting over closed encryption replaces it with a plain file system (GParted).
+        destination.luks = LuksMapping();
+        destination.luksHeader = 0;
+        destination.encrypted.reset();
+    }
     QMessageBox box(QMessageBox::Warning, tr("You have pasted into an existing partition"),
                     tr("The data in %1 will be lost when the operation is applied.").arg(destination.path),
                     QMessageBox::Cancel, this);
@@ -899,13 +976,17 @@ void MainWindow::actionPaste()
     if (box.clickedButton() != ok)
         return;
     addOperation(std::make_unique<OperationCopy>(device, destination, Layout::pasteIntoExisting(destination, copied),
-                                                 copied));
+                                                 source));
 }
 
 void MainWindow::actionCheck()
 {
     if (const Partition *sel = selectedPartition()) {
         const Partition p = *sel;
+        // Checking open encryption grows the mapping to fill the partition, which needs
+        // the passphrase when the volume key is in the kernel keyring.
+        if (!passphraseForResize(p))
+            return;
         addOperation(std::make_unique<OperationCheck>(m_session.devices[size_t(m_current)], p));
     }
 }
@@ -915,9 +996,10 @@ void MainWindow::actionLabel()
     const Partition *sel = selectedPartition();
     if (!sel)
         return;
-    DialogName dialog(tr("Set file system label on %1").arg(sel->path), tr("&Label:"), sel->fsLabel,
-                      fsLabelMaxLength(sel->fsType), this);
-    if (dialog.exec() != QDialog::Accepted || dialog.name() == sel->fsLabel)
+    const Partition &f = sel->filesystem();
+    DialogName dialog(tr("Set file system label on %1").arg(sel->path), tr("&Label:"), f.fsLabel,
+                      fsLabelMaxLength(f.fsType), this);
+    if (dialog.exec() != QDialog::Accepted || dialog.name() == f.fsLabel)
         return;
     const Partition original = *sel;
     addOperation(std::make_unique<OperationLabel>(m_session.devices[size_t(m_current)], original, dialog.name()));
@@ -930,6 +1012,215 @@ void MainWindow::actionNewUuid()
         return;
     const Partition original = *sel;
     addOperation(std::make_unique<OperationChangeUuid>(m_session.devices[size_t(m_current)], original));
+}
+
+// --- busy state: encryption, mount, swap, Volume Groups ----------------------------------
+
+bool MainWindow::toggleAllowed(const Partition &p, const QString &disallowed)
+{
+    const int n = m_session.pendingCountFor(p);
+    if (n == 0)
+        return true;
+    QMessageBox box(QMessageBox::Information, QStringLiteral("QtParted"),
+                    tr("%n operation(s) currently pending for partition %1", nullptr, n).arg(p.path), QMessageBox::Ok,
+                    this);
+    box.setInformativeText(disallowed + QLatin1Char('\n')
+                           + tr("Use the Edit menu to undo, clear or apply pending operations."));
+    box.exec();
+    return false;
+}
+
+bool MainWindow::runBlocking(const QString &message, const std::function<bool(QString &)> &action, QString &error)
+{
+    // The commands can take seconds (cryptsetup derives keys slowly on purpose): keep
+    // the window painting while the UI is blocked.
+    setScanning(true, message);
+    bool ok = false;
+    QString err;
+    QEventLoop loop;
+    QThread *thread = QThread::create([&]() { ok = action(err); });
+    connect(thread, &QThread::finished, &loop, &QEventLoop::quit);
+    thread->start();
+    loop.exec(QEventLoop::ExcludeUserInputEvents);
+    thread->wait();
+    delete thread;
+    setScanning(false);
+    error = err;
+    return ok;
+}
+
+void MainWindow::showToggleFailure(const QString &summary, const QString &error)
+{
+    QMessageBox box(QMessageBox::Critical, QStringLiteral("QtParted"), summary, QMessageBox::Ok, this);
+    box.setInformativeText(error);
+    box.exec();
+}
+
+void MainWindow::actionToggleCrypt()
+{
+    const Partition *sel = selectedPartition();
+    if (!sel || sel->fsType != FsType::Luks)
+        return;
+    const Partition p = *sel;
+    QString error;
+    if (p.busy) {
+        if (!toggleAllowed(p, tr("The close encryption action cannot be performed when there are operations "
+                                 "pending for the partition.")))
+            return;
+        if (!runBlocking(tr("Closing encryption on %1").arg(p.path),
+                         [p](QString &e) { return Luks::close(p, e); }, error))
+            showToggleFailure(tr("Could not close encryption"), error);
+        refreshDevices();
+        return;
+    }
+    if (!toggleAllowed(p, tr("The open encryption action cannot be performed when there are operations pending "
+                             "for the partition.")))
+        return;
+    // A passphrase that opened it before in this session is tried first.
+    const QByteArray stored = PasswordStore::lookup(p.uuid);
+    bool opened = !stored.isEmpty()
+               && runBlocking(tr("Opening encryption on %1").arg(p.path),
+                              [p, stored](QString &e) { return Luks::open(p, stored, e); }, error);
+    if (!opened) {
+        DialogPassword dialog(tr("Enter LUKS passphrase to open %1").arg(p.path), p.path, this);
+        while (!opened) {
+            if (dialog.exec() != QDialog::Accepted)
+                return;  // cancelled: nothing changed, no refresh needed
+            const QByteArray pw = dialog.password();
+            opened = runBlocking(tr("Opening encryption on %1").arg(p.path),
+                                 [p, pw](QString &e) { return Luks::open(p, pw, e); }, error);
+            if (!opened)
+                dialog.setError(pw.isEmpty() ? QString() : tr("Failed to open LUKS encryption"));
+        }
+        dialog.clearPassword();
+    }
+    refreshDevices();
+}
+
+bool MainWindow::passphraseForResize(const Partition &p)
+{
+    if (!p.isOpenLuks() || p.luks.keyLocation != LuksMapping::KeyLocation::KeyRing)
+        return true;  // the volume key is in the dm-crypt table: no passphrase needed
+    if (!PasswordStore::lookup(p.uuid).isEmpty())
+        return true;  // worked before; assume it still does, like GParted
+    DialogPassword dialog(tr("Enter LUKS passphrase to resize %1").arg(p.path), p.path, this);
+    while (true) {
+        if (dialog.exec() != QDialog::Accepted)
+            return false;
+        const QByteArray pw = dialog.password();
+        if (pw.isEmpty()) {
+            dialog.setError(QString());
+            continue;
+        }
+        QString ignored;
+        const bool ok = runBlocking(tr("Testing the passphrase of %1").arg(p.path),
+                                    [p, pw](QString &) { return Luks::testPassphrase(p, pw); }, ignored);
+        if (ok) {
+            PasswordStore::store(p.uuid, pw);
+            dialog.clearPassword();
+            return true;
+        }
+        dialog.setError(tr("LUKS encryption passphrase check failed"));
+    }
+}
+
+void MainWindow::actionToggleBusy()
+{
+    const Partition *sel = selectedPartition();
+    if (!sel)
+        return;
+    const AllowedActions a = Session::allowedActions(m_display, sel, m_session.pendingCount(m_display.path));
+    const Partition f = sel->filesystem();
+    QString disallowed, pulse, failure;
+    std::function<bool(QString &)> action;
+    switch (a.toggle) {
+    case AllowedActions::Toggle::SwapOff:
+        disallowed = tr("The swapoff action cannot be performed when there are operations pending for the partition.");
+        pulse = tr("Deactivating swap on %1").arg(f.path);
+        failure = tr("Could not deactivate swap");
+        action = [f](QString &e) { return BusyActions::swapOff(f, e); };
+        break;
+    case AllowedActions::Toggle::SwapOn:
+        disallowed = tr("The swapon action cannot be performed when there are operations pending for the partition.");
+        pulse = tr("Activating swap on %1").arg(f.path);
+        failure = tr("Could not activate swap");
+        action = [f](QString &e) { return BusyActions::swapOn(f, e); };
+        break;
+    case AllowedActions::Toggle::DeactivateVg:
+        disallowed = tr("The deactivate Volume Group action cannot be performed when there are operations pending "
+                        "for the partition.");
+        pulse = tr("Deactivating Volume Group %1").arg(f.mountPointsText());
+        failure = tr("Could not deactivate Volume Group");
+        action = [f](QString &e) { return BusyActions::setVolumeGroupActive(f, false, e); };
+        break;
+    case AllowedActions::Toggle::ActivateVg:
+        disallowed = tr("The activate Volume Group action cannot be performed when there are operations pending "
+                        "for the partition.");
+        pulse = tr("Activating Volume Group %1").arg(f.mountPointsText());
+        failure = tr("Could not activate Volume Group");
+        action = [f](QString &e) { return BusyActions::setVolumeGroupActive(f, true, e); };
+        break;
+    case AllowedActions::Toggle::Unmount:
+        disallowed = tr("The unmount action cannot be performed when there are operations pending for the partition.");
+        pulse = tr("Unmounting %1").arg(f.path);
+        failure = tr("Could not unmount %1").arg(f.path);
+        action = [f](QString &e) { return BusyActions::unmount(f, e); };
+        break;
+    case AllowedActions::Toggle::None:
+        return;
+    }
+    if (!toggleAllowed(*sel, disallowed))
+        return;
+    QString error;
+    if (!runBlocking(pulse, action, error))
+        showToggleFailure(failure, error);
+    refreshDevices();
+}
+
+void MainWindow::actionMountOn(const QString &mountPoint)
+{
+    const Partition *sel = selectedPartition();
+    if (!sel)
+        return;
+    if (!toggleAllowed(*sel, tr("The mount action cannot be performed when an operation is pending for the partition.")))
+        return;
+    const Partition f = sel->filesystem();
+    QString error;
+    if (!runBlocking(tr("mounting %1 on %2").arg(f.path, mountPoint),
+                     [f, mountPoint](QString &e) { return BusyActions::mount(f, mountPoint, e); }, error))
+        showToggleFailure(tr("Could not mount %1 on %2").arg(f.path, mountPoint), error);
+    refreshDevices();
+}
+
+bool MainWindow::confirmRemoveLvmPv(const Partition &pv, RemovePv kind)
+{
+    QString text;
+    switch (kind) {
+    case RemovePv::Delete: text = tr("You are deleting non-empty LVM2 Physical Volume %1").arg(pv.path); break;
+    case RemovePv::Format: text = tr("You are formatting over non-empty LVM2 Physical Volume %1").arg(pv.path); break;
+    case RemovePv::Paste:  text = tr("You are pasting over non-empty LVM2 Physical Volume %1").arg(pv.path); break;
+    }
+    const QString vg = pv.mountPoints.value(0);
+    QStringList members;
+    if (!vg.isEmpty()) {
+        const CommandResult r = runCommand(QStringLiteral("lvm"), { QStringLiteral("vgs"), QStringLiteral("--noheadings"),
+                                                                   QStringLiteral("-o"), QStringLiteral("pv_name"), vg });
+        for (const QString &l : r.output.split(QLatin1Char('\n'), Qt::SkipEmptyParts))
+            members << l.trimmed();
+    }
+    QMessageBox box(QMessageBox::Warning, QStringLiteral("QtParted"), text, QMessageBox::Cancel, this);
+    box.setInformativeText(
+        tr("Deleting or overwriting the Physical Volume is irrecoverable and will destroy or damage the Volume Group.")
+        + QStringLiteral("\n\n")
+        + tr("To avoid destroying or damaging the Volume Group, you are advised to cancel and use external LVM "
+             "commands to free the Physical Volume before attempting this operation.")
+        + QStringLiteral("\n\n") + tr("Do you want to continue to forcibly delete the Physical Volume?")
+        + QStringLiteral("\n\n") + tr("Volume Group: %1").arg(vg) + QLatin1Char('\n')
+        + tr("Members: %1").arg(members.join(QStringLiteral(", "))));
+    QPushButton *cont = box.addButton(tr("&Continue"), QMessageBox::DestructiveRole);
+    box.setDefaultButton(QMessageBox::Cancel);
+    box.exec();
+    return box.clickedButton() == cont;
 }
 
 void MainWindow::actionName()

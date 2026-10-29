@@ -293,18 +293,33 @@ SpaceEdit resizeMoveSpace(const Device &device, const Partition &p)
     }
 
     // Port of GParted's Resize_Move_Normal.
-    const FsSupport fs = FileSystemRegistry::instance().support(p.fsType);
+    // An open LUKS partition is resized with the file system inside it (GParted's
+    // activate_resize()): its capabilities, masked by what the open encryption allows.
+    const Partition &content = p.filesystem();
+    FsSupport fs = FileSystemRegistry::instance().support(content.fsType);
     FsLimits limits;
-    if (const FileSystem *f = FileSystemRegistry::instance().get(p.fsType))
+    if (const FileSystem *f = FileSystemRegistry::instance().get(content.fsType))
         limits = f->limits();
+    if (p.isOpenLuks()) {
+        const FsSupport enc = FileSystemRegistry::instance().support(FsType::Luks);
+        fs.move = FsMethod::None;
+        if (enc.onlineGrow == FsMethod::None)
+            fs.grow = fs.onlineGrow = FsMethod::None;
+        if (enc.onlineShrink == FsMethod::None)
+            fs.shrink = fs.onlineShrink = FsMethod::None;
+        const ByteValue header = p.luksHeader * p.sectorSize;
+        limits.minSize = header + std::max<ByteValue>(limits.minSize, MiB);
+        if (limits.maxSize)
+            limits.maxSize += header;
+    }
     bool canShrink, canGrow, canMove;
     if (isNew) {
         // Nothing written yet: any geometry is fine.
         canShrink = canGrow = canMove = true;
     } else {
-        canShrink = (p.busy ? fs.onlineShrink : fs.shrink) != FsMethod::None
-                 && (p.usageKnown() || p.fsType == FsType::LinuxSwap);
-        canGrow = (p.busy ? fs.onlineGrow : fs.grow) != FsMethod::None;
+        canShrink = (content.busy ? fs.onlineShrink : fs.shrink) != FsMethod::None
+                 && (p.usageKnown() || content.fsType == FsType::LinuxSwap);
+        canGrow = (content.busy ? fs.onlineGrow : fs.grow) != FsMethod::None;
         canMove = fs.move != FsMethod::None && !p.busy && p.type != PartitionType::Unpartitioned;
     }
     s.fixedStart = !canMove;
@@ -394,7 +409,9 @@ static void prepare(const Device &device, Partition &n, const SpaceEdit &s, qint
     n.strictStart = !beforeChanged;
     snapToAlignment(device, n);
 
-    if (n.usageKnown()) {
+    if (n.fsType == FsType::Luks) {
+        n.luksFollowResize();
+    } else if (n.usageKnown()) {
         const Sector newSize = n.length();
         if (oldSize == newSize)
             n.setUsage(n.sectorsUsed + n.sectorsUnused, n.sectorsUnused);

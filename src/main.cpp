@@ -8,6 +8,7 @@
  * (at your option) any later version.
  */
 #include "FileSystem.h"
+#include "Luks.h"
 #include "MainWindow.h"
 #include "Parted.h"
 
@@ -98,5 +99,7 @@ int main(int argc, char **argv)
     QtParted::MainWindow window(parser.positionalArguments());
     window.show();
     QTimer::singleShot(0, &window, &QtParted::MainWindow::refreshDevices);
-    return app.exec();
+    const int rc = app.exec();
+    QtParted::PasswordStore::clear();  // wipe LUKS passphrases from memory
+    return rc;
 }

@@ -74,6 +74,7 @@ void SystemInfo::load()
 {
     m_mountsByDev.clear();
     m_mountsBySource.clear();
+    m_allMountPoints.clear();
     m_swapsByDev.clear();
     m_swapsByPath.clear();
     m_fstab.clear();
@@ -90,6 +91,7 @@ void SystemInfo::load()
         Mount m;
         m.mountPoint = unescapeMountField(f[4]);
         m.readonly = f[5].split(QLatin1Char(',')).contains(QStringLiteral("ro"));
+        m_allMountPoints.append(m.mountPoint);
         const QStringList mm = f[2].split(QLatin1Char(':'));
         if (mm.size() == 2) {
             const quint64 dev = makedev(mm[0].toUInt(), mm[1].toUInt());

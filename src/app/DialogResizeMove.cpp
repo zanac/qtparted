@@ -67,7 +67,7 @@ void DialogResizeMove::build(const QString &title, const QString &okText, const 
     m_resizer->setFixedStart(s.fixedStart);
     const bool extended = shown.type == PartitionType::Extended;
     m_resizer->setExtendedBackground(m_partition.insideExtended && !m_paste);
-    m_resizer->setPartitionColor(Ui::fsColor(extended ? FsType::Extended : shown.fsType));
+    m_resizer->setPartitionColor(Ui::fsColor(extended ? FsType::Extended : Ui::displayFsType(shown)));
     m_resizer->setUsed(s.usedMiB, extended ? s.usedStartMiB : -1);
 
     auto spin = [this](qint64 min, qint64 max) {
@@ -106,12 +106,15 @@ void DialogResizeMove::build(const QString &title, const QString &okText, const 
 
     auto *top = new QVBoxLayout(this);
     QString what = m_paste ? tr("Paste %1 (%2, %3) into free space on %4")
-                                 .arg(shown.displayPath(), fsName(shown.fsType),
+                                 .arg(shown.displayPath(), Ui::fsDisplayName(shown),
                                       formatSize(shown.length(), shown.sectorSize), m_device.path)
-                           : tr("%1 (%2, %3)").arg(shown.displayPath(), extended ? tr("extended") : fsName(shown.fsType),
+                           : tr("%1 (%2, %3)").arg(shown.displayPath(), extended ? tr("extended") : Ui::fsDisplayName(shown),
                                                    formatSize(shown.length(), shown.sectorSize));
     top->addWidget(new QLabel(what, this));
-    if (!m_paste && shown.busy)
+    if (!m_paste && shown.isOpenLuks())
+        top->addWidget(new QLabel(tr("<i>The encryption is open: it is resized together with the file system inside, "
+                                     "its start can't move.</i>"), this));
+    else if (!m_paste && shown.busy)
         top->addWidget(new QLabel(tr("<i>The partition is in use: it can only be resized online, its start can't move.</i>"), this));
     else if (!m_paste && s.fixedStart && !extended)
         top->addWidget(new QLabel(tr("<i>The %1 file system can't be moved: only its end can change.</i>").arg(fsName(shown.fsType)), this));

@@ -13,6 +13,7 @@
 
 #include <QMainWindow>
 
+#include <functional>
 #include <optional>
 
 class QAction;
@@ -74,6 +75,20 @@ private:
     void actionCheck();
     void actionLabel();
     void actionNewUuid();
+    void actionToggleCrypt();
+    void actionToggleBusy();
+    void actionMountOn(const QString &mountPoint);
+    // Busy state changes: refused while operations are pending for the partition.
+    bool toggleAllowed(const Partition &partition, const QString &disallowed);
+    // Run `action` in a worker thread with the UI blocked; returns its result.
+    bool runBlocking(const QString &message, const std::function<bool(QString &)> &action, QString &error);
+    void showToggleFailure(const QString &summary, const QString &error);
+    // Open LUKS whose volume key is in the kernel keyring: make sure a working
+    // passphrase is known before queuing a resize (GParted).
+    bool passphraseForResize(const Partition &partition);
+    enum class RemovePv { Delete, Format, Paste };
+    // GParted's warning before destroying a Physical Volume that belongs to a VG.
+    bool confirmRemoveLvmPv(const Partition &pv, RemovePv kind);
     void actionName();
     void actionFlags();
     void actionInfo();
@@ -120,6 +135,10 @@ private:
     QAction *m_actCheck = nullptr;
     QAction *m_actLabel = nullptr;
     QAction *m_actUuid = nullptr;
+    QAction *m_actCrypt = nullptr;
+    QAction *m_actBusy = nullptr;
+    QMenu *m_mountMenu = nullptr;
+    QAction *m_mountMenuAction = nullptr;
     QAction *m_actName = nullptr;
     QAction *m_actFlags = nullptr;
     QAction *m_actInfo = nullptr;

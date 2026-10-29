@@ -36,6 +36,13 @@ public:
     static bool isInUse(const QString &devPath);
     // Partition device nodes the kernel currently knows for a whole disk device.
     static QStringList kernelPartitions(const QString &diskPath);
+    // Every mount point in the mount table, once per file system mounted on it.
+    QStringList allMountPoints() const { return m_allMountPoints; }
+    // Whether `devPath` is mounted at `mountPoint` right now.
+    bool isMountedAt(const QString &devPath, const QString &mountPoint) const
+    {
+        return mountPoints(devPath).contains(mountPoint);
+    }
     QStringList fstabMountPoints(const QString &devPath, const QString &uuid, const QString &label) const;
 
     // Whole disk devices worth showing, like GParted's /proc/partitions filter plus
@@ -50,6 +57,7 @@ private:
     struct Mount { QString mountPoint; bool readonly = false; };
     QHash<quint64, QList<Mount>> m_mountsByDev;
     QHash<QString, QList<Mount>> m_mountsBySource;
+    QStringList m_allMountPoints;
     QSet<quint64> m_swapsByDev;
     QSet<QString> m_swapsByPath;
     struct FstabEntry { QString spec; QString mountPoint; };

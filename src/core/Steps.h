@@ -25,6 +25,12 @@ namespace Steps {
 bool checkRepair(const Partition &partition, OperationDetail &detail);
 bool maximizeFileSystem(const Partition &partition, OperationDetail &detail);
 bool recreateSwap(const Partition &partition, OperationDetail &detail);
+// Check operation's final step: maximize the encryption and/or the file system.
+bool checkRepairMaximize(const Partition &partition, OperationDetail &detail);
+// LUKS: "cryptsetup resize" to fill the partition; to the size of `newPartition`.
+bool maximizeEncryption(const Partition &partition, OperationDetail &detail);
+bool shrinkEncryption(const Partition &oldPartition, const Partition &newPartition, OperationDetail &detail);
+bool resizeEncryption(const Partition &oldPartition, Partition &newPartition, OperationDetail &detail);
 
 // Move and/or resize `oldPartition` to the geometry of `newPartition` (updated with the
 // final boundaries).

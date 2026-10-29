@@ -1,11 +1,13 @@
 # Core library: no GUI, only QtCore + libparted + libblkid.  Used by the
 # application and the tests.
 add_library(qtparted-core STATIC
+    core/BusyActions.cpp
     core/Command.cpp
     core/FileSystem.cpp
     core/FsMaintenance.cpp
     core/FsType.cpp
     core/Layout.cpp
+    core/Luks.cpp
     core/Operation.cpp
     core/OperationDetail.cpp
     core/Parted.cpp
@@ -33,6 +35,7 @@ add_executable(qtparted
     app/DialogName.cpp
     app/DialogNewPartition.cpp
     app/DialogPartitionInfo.cpp
+    app/DialogPassword.cpp
     app/DialogResizeMove.cpp
     app/DiskMapWidget.cpp
     app/MainWindow.cpp

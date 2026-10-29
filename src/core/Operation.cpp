@@ -12,6 +12,8 @@
  */
 #include "Operation.h"
 
+#include "Luks.h"
+
 #include "FileSystem.h"
 #include "Steps.h"
 
@@ -113,6 +115,29 @@ void Operation::insertNew(PartitionVector &partitions) const
             insertUnallocated(m_device.path, partitions, 0, m_device.length - 1, m_device.sectorSize, false);
         }
     }
+}
+
+// Right before changing a file system: the partition is where and as busy as when the
+// operation was queued and, for a file system inside open LUKS encryption, the mapping is
+// still the same and the file system inside is as busy as it was.
+static bool verifyFileSystemTarget(Partition &p, OperationDetail &detail, bool online)
+{
+    if (!p.isOpenLuks())
+        return Parted::verifyTarget(p, true, detail, online && p.busy);
+    if (!Parted::verifyTarget(p, true, detail, true))
+        return false;
+    Luks::loadCache();
+    const LuksMapping m = Luks::mapping(p.path);
+    if (m.name != p.luks.name || m.offset != p.luks.offset || m.length != p.luks.length) {
+        detail.addChild(QCoreApplication::translate("Operation",
+                                                    "The encryption mapping of %1 changed since the operation was "
+                                                    "queued. Refresh the devices and queue it again. Nothing was changed.")
+                            .arg(p.path),
+                        OperationDetail::Status::Error, OperationDetail::Font::Italic);
+        return false;
+    }
+    Partition &f = *p.encrypted;
+    return Parted::verifyTarget(f, false, detail, online && f.busy);
 }
 
 bool createFileSystem(const Partition &p, OperationDetail &detail)
@@ -319,7 +344,7 @@ OperationFormat::OperationFormat(const Device &device, const Partition &original
 
 void OperationFormat::createDescription()
 {
-    m_description = tr("Format %1 as %2").arg(m_original.path, fsName(m_new.fsType));
+    m_description = tr("Format %1 as %2").arg(m_original.path, fsName(m_new.filesystem().fsType));
 }
 
 void OperationFormat::applyToVisual(Device &device)
@@ -346,9 +371,16 @@ bool OperationFormat::mergeWith(const Operation &candidate)
 
 bool OperationFormat::execute(OperationDetail &detail)
 {
-    if (!Parted::calibrate(m_new, detail) || !Parted::verifyTarget(m_new, true, detail))
+    if (!Parted::calibrate(m_new, detail) || !verifyFileSystemTarget(m_new, detail, false))
         return false;
     m_original.path = m_new.path;
+    if (m_new.isOpenLuks()) {
+        // The file system inside the open encryption mapping (GParted: format within LUKS).
+        const Partition &f = m_new.filesystem();
+        if (f.fsType == FsType::Cleared)
+            return Parted::eraseSignatures(f, detail);
+        return Parted::eraseSignatures(f, detail) && createFileSystem(f, detail);
+    }
     if (m_new.fsType == FsType::Cleared)
         return Parted::eraseSignatures(m_new, detail) && Parted::setPartitionType(m_new, detail);
     return Parted::eraseSignatures(m_new, detail) && Parted::setPartitionType(m_new, detail)
@@ -527,12 +559,13 @@ bool OperationResizeMove::execute(OperationDetail &detail)
     if (!Parted::calibrate(m_original, detail))
         return false;
     // Online changes are expected to find the partition in use.
-    if (!Parted::verifyTarget(m_original, true, detail, m_original.busy))
+    if (!verifyFileSystemTarget(m_original, detail, true))
         return false;
     m_new.path = m_original.path;
     m_new.number = m_original.number;
     m_new.busy = m_original.busy;
     m_new.mountPoints = m_original.mountPoints;
+    m_new.luks = m_original.luks;
     return Steps::resizeMove(m_original, m_new, detail);
 }
 
@@ -564,14 +597,21 @@ void OperationCopy::applyToVisual(Device &device)
 
 bool OperationCopy::execute(OperationDetail &detail)
 {
-    if (!Parted::calibrate(m_copied, detail) || !Parted::verifyTarget(m_copied, true, detail))
+    if (!Parted::calibrate(m_copied, detail) || !verifyFileSystemTarget(m_copied, detail, false))
         return false;
     if (m_original.type != PartitionType::Unallocated) {
         if (!Parted::calibrate(m_new, detail) || !Parted::verifyTarget(m_new, true, detail))
             return false;
         m_original.path = m_new.path;
     }
-    return Steps::copy(m_copied, m_new, detail);
+    // Never onto the source's own sectors (also when the source is inside encryption).
+    if (m_copied.devicePath == m_new.devicePath && m_copied.start <= m_new.end && m_new.start <= m_copied.end) {
+        detail.addChild(tr("the destination overlaps the source partition %1: nothing was changed").arg(m_copied.path),
+                        OperationDetail::Status::Error, OperationDetail::Font::Italic);
+        return false;
+    }
+    // The content copied is the file system, inside the encryption when open.
+    return Steps::copy(m_copied.filesystem(), m_new, detail);
 }
 
 // --- check ----------------------------------------------------------------------------------
@@ -583,7 +623,7 @@ OperationCheck::OperationCheck(const Device &device, const Partition &partition)
 
 void OperationCheck::createDescription()
 {
-    m_description = tr("Check and repair file system (%1) on %2").arg(fsName(m_original.fsType), m_original.path);
+    m_description = tr("Check and repair file system (%1) on %2").arg(fsName(m_original.filesystem().fsType), m_original.path);
 }
 
 bool OperationCheck::mergeWith(const Operation &candidate)
@@ -593,8 +633,8 @@ bool OperationCheck::mergeWith(const Operation &candidate)
 
 bool OperationCheck::execute(OperationDetail &detail)
 {
-    return Parted::calibrate(m_new, detail) && Parted::verifyTarget(m_new, true, detail)
-        && Steps::checkRepair(m_new, detail) && Steps::maximizeFileSystem(m_new, detail);
+    return Parted::calibrate(m_new, detail) && verifyFileSystemTarget(m_new, detail, false)
+        && Steps::checkRepair(m_new.filesystem(), detail) && Steps::checkRepairMaximize(m_new, detail);
 }
 
 // --- file system label --------------------------------------------------------------------
@@ -602,27 +642,27 @@ bool OperationCheck::execute(OperationDetail &detail)
 OperationLabel::OperationLabel(const Device &device, const Partition &original, const QString &label)
     : Operation(OperationType::Label, device, original, original)
 {
-    m_new.fsLabel = label;
+    m_new.filesystem().fsLabel = label;
 }
 
 void OperationLabel::createDescription()
 {
-    if (m_new.fsLabel.isEmpty())
+    if (m_new.filesystem().fsLabel.isEmpty())
         m_description = tr("Clear file system label on %1").arg(m_original.path);
     else
-        m_description = tr("Set file system label \"%1\" on %2").arg(m_new.fsLabel, m_original.path);
+        m_description = tr("Set file system label \"%1\" on %2").arg(m_new.filesystem().fsLabel, m_original.path);
 }
 
 void OperationLabel::applyToVisual(Device &device)
 {
     if (Partition *p = findOriginal(device.partitions))
-        p->fsLabel = m_new.fsLabel;
+        p->filesystem().fsLabel = m_new.filesystem().fsLabel;
 }
 
 bool OperationLabel::mergeWith(const Operation &candidate)
 {
     if (candidate.type() == OperationType::Label && m_new == candidate.original()) {
-        m_new.fsLabel = candidate.partitionNew().fsLabel;
+        m_new.filesystem().fsLabel = candidate.partitionNew().filesystem().fsLabel;
         createDescription();
         return true;
     }
@@ -631,8 +671,8 @@ bool OperationLabel::mergeWith(const Operation &candidate)
 
 bool OperationLabel::execute(OperationDetail &detail)
 {
-    return Parted::calibrate(m_new, detail) && Parted::verifyTarget(m_new, true, detail, m_new.busy)
-        && Steps::labelFileSystem(m_new, detail);
+    return Parted::calibrate(m_new, detail) && verifyFileSystemTarget(m_new, detail, true)
+        && Steps::labelFileSystem(m_new.filesystem(), detail);
 }
 
 // --- new UUID -------------------------------------------------------------------------------
@@ -640,18 +680,18 @@ bool OperationLabel::execute(OperationDetail &detail)
 OperationChangeUuid::OperationChangeUuid(const Device &device, const Partition &original)
     : Operation(OperationType::ChangeUuid, device, original, original)
 {
-    m_new.uuid = tr("(new random UUID)");
+    m_new.filesystem().uuid = tr("(new random UUID)");
 }
 
 void OperationChangeUuid::createDescription()
 {
-    m_description = tr("Set a new random UUID on %1 file system on %2").arg(fsName(m_original.fsType), m_original.path);
+    m_description = tr("Set a new random UUID on %1 file system on %2").arg(fsName(m_original.filesystem().fsType), m_original.path);
 }
 
 void OperationChangeUuid::applyToVisual(Device &device)
 {
     if (Partition *p = findOriginal(device.partitions))
-        p->uuid = m_new.uuid;
+        p->filesystem().uuid = m_new.filesystem().uuid;
 }
 
 bool OperationChangeUuid::mergeWith(const Operation &candidate)
@@ -661,8 +701,8 @@ bool OperationChangeUuid::mergeWith(const Operation &candidate)
 
 bool OperationChangeUuid::execute(OperationDetail &detail)
 {
-    return Parted::calibrate(m_new, detail) && Parted::verifyTarget(m_new, true, detail)
-        && Steps::changeUuid(m_new, detail);
+    return Parted::calibrate(m_new, detail) && verifyFileSystemTarget(m_new, detail, false)
+        && Steps::changeUuid(m_new.filesystem(), detail);
 }
 
 } // namespace QtParted

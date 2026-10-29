@@ -64,9 +64,62 @@ Sector Partition::significantUnallocatedThreshold() const
 
 Sector Partition::estimatedMinSize() const
 {
+    if (isOpenLuks()) {
+        if (sectorsUsed < 0 || encrypted->sectorsUsed < 0)
+            return -1;
+        const Sector totalUsed = luksHeader + encrypted->sectorsUsed;
+        const Sector totalUnallocated = sectorsUnallocated + encrypted->sectorsUnallocated;
+        return totalUsed + std::min(totalUnallocated, significantUnallocatedThreshold());
+    }
     if (sectorsUsed < 0)
         return -1;
     return sectorsUsed + std::min(sectorsUnallocated, significantUnallocatedThreshold());
+}
+
+bool Partition::usageKnown() const
+{
+    const bool own = sectorsUsed >= 0 && sectorsUnused >= 0;
+    if (isOpenLuks())
+        return own && encrypted->usageKnown();
+    return own;
+}
+
+Sector Partition::usedSectors() const
+{
+    if (isOpenLuks()) {
+        if (sectorsUsed < 0 || encrypted->sectorsUsed < 0)
+            return -1;
+        const Sector totalUsed = luksHeader + encrypted->sectorsUsed;
+        const Sector totalUnallocated = sectorsUnallocated + encrypted->sectorsUnallocated;
+        return totalUnallocated < significantUnallocatedThreshold() ? totalUsed + totalUnallocated : totalUsed;
+    }
+    if (sectorsUsed < 0)
+        return -1;
+    return sectorsUnallocated < significantUnallocatedThreshold() ? sectorsUsed + sectorsUnallocated : sectorsUsed;
+}
+
+Sector Partition::unusedSectors() const
+{
+    return isOpenLuks() ? encrypted->sectorsUnused : sectorsUnused;
+}
+
+Sector Partition::unallocatedSectors() const
+{
+    const Sector total = isOpenLuks() ? sectorsUnallocated + encrypted->sectorsUnallocated : sectorsUnallocated;
+    return total < significantUnallocatedThreshold() ? 0 : total;
+}
+
+void Partition::luksFollowResize()
+{
+    if (fsType != FsType::Luks)
+        return;
+    setUsage(length(), 0);
+    if (encrypted) {
+        const Sector mapping = length() - luksHeader;
+        encrypted->end = encrypted->start + mapping - 1;
+        if (encrypted->sectorsUsed >= 0)
+            encrypted->setUsage(mapping, mapping - encrypted->sectorsUsed);
+    }
 }
 
 void Partition::setOnlyFlag(const QString &flag)

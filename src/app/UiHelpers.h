@@ -33,6 +33,10 @@ QIcon fsIcon(FsType type, int size = 16);
 QIcon icon(const char *themeName, QStyle::StandardPixmap fallback);
 
 QString partitionTypeText(PartitionType type);
+// "ext4", or "[Encrypted] ext4" / "[Encrypted]" for open / closed LUKS (GParted).
+QString fsDisplayName(const Partition &p);
+// The file system type whose colour and icon represent the partition.
+FsType displayFsType(const Partition &p);
 QString statusText(const Partition &p);
 // A stable identity for selecting the same partition after a refresh.
 QString partitionKey(const Partition &p);

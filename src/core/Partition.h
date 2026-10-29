@@ -17,6 +17,7 @@
 
 #include <QStringList>
 
+#include <memory>
 #include <vector>
 
 namespace QtParted {
@@ -44,6 +45,48 @@ enum class Alignment {
 
 struct Partition;
 using PartitionVector = std::vector<Partition>;
+
+// Value-semantic optional holder for a type that is still incomplete (a Partition
+// inside a Partition): copies deep-copy the held object.
+template <typename T>
+class Boxed
+{
+public:
+    Boxed() = default;
+    Boxed(const Boxed &o) : m_p(o.m_p ? std::make_unique<T>(*o.m_p) : nullptr) {}
+    Boxed(Boxed &&) noexcept = default;
+    Boxed &operator=(const Boxed &o)
+    {
+        if (this != &o)
+            m_p = o.m_p ? std::make_unique<T>(*o.m_p) : nullptr;
+        return *this;
+    }
+    Boxed &operator=(Boxed &&) noexcept = default;
+    ~Boxed() = default;
+
+    explicit operator bool() const { return bool(m_p); }
+    T &operator*() { return *m_p; }
+    const T &operator*() const { return *m_p; }
+    T *operator->() { return m_p.get(); }
+    const T *operator->() const { return m_p.get(); }
+    T &emplace(const T &value) { m_p = std::make_unique<T>(value); return *m_p; }
+    void reset() { m_p.reset(); }
+
+private:
+    std::unique_ptr<T> m_p;
+};
+
+// An open dm-crypt mapping of a LUKS partition (port of GParted's LUKS_Mapping).
+struct LuksMapping {
+    enum class KeyLocation { Unknown, DmCrypt, KeyRing };
+    QString name;            // /dev/mapper/<name>
+    ByteValue offset = 0;    // start of the encrypted data in the partition
+    ByteValue length = 0;    // size of the mapping
+    KeyLocation keyLocation = KeyLocation::Unknown;
+
+    bool isOpen() const { return !name.isEmpty(); }
+    QString path() const { return QStringLiteral("/dev/mapper/") + name; }
+};
 
 struct Partition {
     QString devicePath;
@@ -82,12 +125,32 @@ struct Partition {
 
     PartitionVector logicals;  // only for Extended
 
+    // LUKS: the open mapping and the file system inside it (GParted's PartitionLUKS).
+    LuksMapping luks;
+    Sector luksHeader = 0;      // sectors before the encrypted data
+    Boxed<Partition> encrypted; // present while the mapping is open
+
     // --- helpers -----------------------------------------------------------
     Sector length() const { return end - start + 1; }
     ByteValue byteLength() const { return length() * sectorSize; }
     Sector middleSector() const { return (start + end) / 2; }
 
-    bool usageKnown() const { return sectorsUsed >= 0 && sectorsUnused >= 0; }
+    bool usageKnown() const;
+    // Usage as displayed (GParted's get_sectors_*): an open LUKS partition adds its
+    // header to the usage of the file system inside; unallocated space below the
+    // significant threshold counts as used.
+    Sector usedSectors() const;
+    Sector unusedSectors() const;
+    Sector unallocatedSectors() const;
+
+    // The partition directly holding the file system: the one inside an open LUKS
+    // mapping, otherwise this one.
+    bool isOpenLuks() const { return fsType == FsType::Luks && busy && bool(encrypted); }
+    const Partition &filesystem() const { return isOpenLuks() ? *encrypted : *this; }
+    Partition &filesystem() { return isOpenLuks() ? *encrypted : *this; }
+    // LUKS: after start/end changed, the encrypted data and the mapping fill the
+    // partition again (PartitionLUKS::resize).
+    void luksFollowResize();
     // fsSize/fsUnused in sectors as reported by the file system tools (-1 = unknown size).
     void setUsage(Sector fsSize, Sector fsUnused);
     void clearUsage();
@@ -104,6 +167,12 @@ struct Partition {
     bool isPartitionInTable() const
     {
         return type == PartitionType::Primary || type == PartitionType::Logical || type == PartitionType::Extended;
+    }
+
+    // Messages of this partition and, while open, of the file system inside the encryption.
+    QStringList allMessages() const
+    {
+        return isOpenLuks() ? messages + encrypted->messages : messages;
     }
 
     QString displayPath() const;   // localized "unallocated" for free space

@@ -12,6 +12,8 @@
  */
 #include "Parted.h"
 
+#include "Luks.h"
+
 #include "Command.h"
 #include "FileSystem.h"
 #include "OperationDetail.h"
@@ -236,6 +238,37 @@ void fillPartitionDetails(Partition &p, const Device &device, const SystemInfo &
         p.uuid = pr.uuid;
         if (pr.ambivalent)
             p.messages.append(tr("Several file system signatures were found; the content can not be identified safely."));
+    }
+
+    if (nodeExists && p.fsType == FsType::Luks) {
+        // Port of GParted's set_luks_partition() and luks::set_used_sectors().
+        const LuksMapping m = Luks::mapping(p.path);
+        if (!m.isOpen()) {
+            // Closed; still busy if something else holds the partition.
+            p.busy = SystemInfo::hasHolders(p.path) || SystemInfo::isExclusivelyBusy(p.path);
+            p.setUsage(p.length(), 0);  // the encrypted data fills the partition
+            return;
+        }
+        p.busy = true;
+        p.luks = m;
+        p.luksHeader = m.offset / p.sectorSize;
+        p.setUsage((m.offset + m.length) / p.sectorSize, 0);
+        Partition in;
+        in.devicePath = m.path();
+        in.path = m.path();
+        in.number = -1;
+        in.type = PartitionType::Unpartitioned;
+        in.fsType = FsType::Unknown;
+        in.sectorSize = p.sectorSize;
+        in.start = 0;
+        in.end = m.length / p.sectorSize - 1;
+        if (QFileInfo::exists(in.path)) {
+            fillPartitionDetails(in, device, sys);
+        } else {
+            in.messages.append(tr("The encryption mapping %1 has no device node.").arg(in.path));
+        }
+        p.encrypted.emplace(in);
+        return;
     }
 
     if (nodeExists) {
@@ -664,7 +697,13 @@ bool verifyTarget(const Partition &p, bool checkKernelGeometry, OperationDetail 
 {
     OperationDetail &od = detail.addChild(expectInUse ? tr("check the position of %1").arg(p.path)
                                                       : tr("check that %1 is not in use").arg(p.path));
-    if (expectInUse && p.type != PartitionType::Extended && !SystemInfo::isInUse(p.path)) {
+    // Open LUKS encryption is in use even when nothing else holds the partition.
+    bool inUse = SystemInfo::isInUse(p.path);
+    if (!inUse && p.fsType == FsType::Luks) {
+        Luks::loadCache();
+        inUse = Luks::mapping(p.path).isOpen();
+    }
+    if (expectInUse && p.type != PartitionType::Extended && !inUse) {
         // Queued as an online change: the file system tools would act on whatever is
         // mounted at the old mount point now.
         od.addChild(tr("%1 is no longer in use, but the operation was queued for a mounted file system. "
@@ -673,7 +712,7 @@ bool verifyTarget(const Partition &p, bool checkKernelGeometry, OperationDetail 
         od.setStatus(OperationDetail::Status::Error);
         return false;
     }
-    if (!expectInUse && SystemInfo::isInUse(p.path)) {
+    if (!expectInUse && inUse) {
         od.addChild(tr("%1 is in use (mounted, active swap, or used by another device). "
                        "Nothing was changed on it.").arg(p.path),
                     OperationDetail::Status::None, OperationDetail::Font::Italic);

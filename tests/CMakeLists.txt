@@ -15,3 +15,10 @@ add_test(NAME disk COMMAND tst_disk)
 add_executable(tst_f2 tst_f2.cpp)
 target_link_libraries(tst_f2 PRIVATE qtparted-core Qt6::Test)
 add_test(NAME f2 COMMAND tst_f2)
+
+# LUKS, mount/unmount, swap and Volume Group actions (root, loop devices).  Kernels
+# without device-mapper use the fakecrypt test double for cryptsetup/dmsetup.
+add_executable(tst_f3 tst_f3.cpp)
+target_link_libraries(tst_f3 PRIVATE qtparted-core Qt6::Test)
+target_compile_definitions(tst_f3 PRIVATE QTPARTED_FAKECRYPT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fakecrypt")
+add_test(NAME f3 COMMAND tst_f3)

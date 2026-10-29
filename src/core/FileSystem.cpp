@@ -12,6 +12,8 @@
  */
 #include "FileSystem.h"
 
+#include "Luks.h"
+
 #include "Command.h"
 #include "OperationDetail.h"
 
@@ -329,6 +331,19 @@ static bool hasAll(const QStringList &programs)
 void FileSystem::detect()
 {
     m_support = FsSupport();
+    if (m_def.type == FsType::Luks) {
+        // Offline grow needs no tool (the mapping fills the partition when opened) but
+        // GParted routes it through cryptsetup like the online resizes; no offline shrink.
+        const bool cs = Tools::has(QStringLiteral("cryptsetup"));
+        m_support.readUsage = true;
+        m_support.move = FsMethod::Block;
+        m_support.copy = FsMethod::Block;  // shown only: encrypted content is copied while open
+        if (cs) {
+            m_support.grow = FsMethod::External;
+            m_support.onlineGrow = m_support.onlineShrink = FsMethod::External;
+        }
+        return;
+    }
     m_support.create = !m_def.mkfsProgram.isEmpty() && Tools::has(m_def.mkfsProgram);
     m_support.createWithLabel = m_support.create && m_def.labelAtCreate;
     bool usage = bool(m_def.readUsage);
@@ -728,6 +743,19 @@ FileSystemRegistry::FileSystemRegistry()
         };
         d.limits.minSize = 32 * MiB;
         d.software = QStringLiteral("bcachefs-tools");
+        add(std::move(d));
+    }
+
+    {
+        // LUKS encryption (GParted's luks.cc): resized with cryptsetup while open,
+        // moved with the block copy while closed.
+        D d;
+        d.type = FsType::Luks;
+        d.labelAtCreate = false;
+        d.readUsage = [](Partition &) {};  // set from the mapping while scanning
+        d.software = QStringLiteral("cryptsetup");
+        d.resize = [](const Partition &p, OperationDetail &od, bool fill) { return Luks::resize(p, fill, od); };
+        d.growPrograms = { QStringLiteral("cryptsetup") };
         add(std::move(d));
     }
 

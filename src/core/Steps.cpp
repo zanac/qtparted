@@ -13,6 +13,7 @@
 #include "Steps.h"
 
 #include "FileSystem.h"
+#include "Luks.h"
 #include "Operation.h"
 #include "OperationDetail.h"
 #include "Parted.h"
@@ -183,6 +184,8 @@ bool resize(const Partition &o, Partition &n, OperationDetail &detail)
 {
     if (o.start != n.start)
         return bug(detail, tr("start of the partition is changing for a resize only step"));
+    if (n.fsType == FsType::Luks)
+        return resizeEncryption(o, n, detail);
     if (n.fsType == FsType::LinuxSwap)
         return Parted::resizeMovePartition(o, n, detail, true) && recreateSwap(n, detail);
     if (n.length() < o.length())
@@ -217,6 +220,23 @@ bool copyFileSystem(const Partition &src, const Partition &dst, OperationDetail 
 }
 
 } // namespace
+
+bool checkRepairMaximize(const Partition &p, OperationDetail &detail)
+{
+    // Port of GParted's check_repair_maximize().
+    if (p.fsType == FsType::Luks) {
+        // Treat the encryption as closed so its offline grow capability decides; the
+        // open state comes from the mapping itself.
+        Partition offline = p;
+        offline.busy = false;
+        if (!maximizeEncryption(offline, detail))
+            return false;
+        if (p.isOpenLuks())
+            return maximizeFileSystem(p.filesystem(), detail);
+        return true;
+    }
+    return maximizeFileSystem(p, detail);
+}
 
 bool checkRepair(const Partition &p, OperationDetail &detail)
 {
@@ -262,6 +282,65 @@ bool recreateSwap(const Partition &p, OperationDetail &detail)
     const bool ok = fs && fs->resize(p, od, true);
     od.setSuccessAndCaptureErrors(ok);
     return ok;
+}
+
+bool maximizeEncryption(const Partition &p, OperationDetail &detail)
+{
+    if (p.fsType != FsType::Luks)
+        return bug(detail, tr("partition does not contain LUKS encryption for a maximize encryption only step"));
+    OperationDetail &od = detail.addChild(tr("grow encryption volume to fill the partition"));
+    const FsSupport s = FileSystemRegistry::instance().support(FsType::Luks);
+    if ((p.busy ? s.onlineGrow : s.grow) == FsMethod::None) {
+        od.addChild(tr("growing is not available for this encryption volume"), OperationDetail::Status::None,
+                    OperationDetail::Font::Italic);
+        od.setStatus(OperationDetail::Status::Warning);
+        return true;
+    }
+    const bool ok = Luks::resize(p, true, od);
+    od.setSuccessAndCaptureErrors(ok);
+    return ok;
+}
+
+bool shrinkEncryption(const Partition &o, const Partition &n, OperationDetail &detail)
+{
+    if (!o.isOpenLuks())
+        return bug(detail, tr("partition does not contain open LUKS encryption for a shrink encryption only step"));
+    OperationDetail &od = detail.addChild(tr("shrink encryption volume"));
+    const bool ok = Luks::resize(n, false, od);
+    od.setSuccessAndCaptureErrors(ok);
+    return ok;
+}
+
+bool resizeEncryption(const Partition &o, Partition &n, OperationDetail &detail)
+{
+    // Port of GParted's resize_encryption().
+    const Sector delta = n.length() - o.length();
+    if (!o.busy && delta < 0)
+        return bug(detail, tr("impossible to shrink a closed LUKS encryption volume"));
+    if (!o.busy)
+        return Parted::resizeMovePartition(o, n, detail, true) && maximizeEncryption(n, detail);
+    if (!o.isOpenLuks() || !n.isOpenLuks())
+        return bug(detail, tr("open LUKS encryption without the file system inside it"));
+
+    const Partition &fsOld = o.filesystem();
+    const Partition &fsNew = n.filesystem();
+    if (fsNew.fsType == FsType::LinuxSwap) {
+        // The encryption is resized, linux-swap inside is recreated.
+        if (delta < 0)
+            return shrinkEncryption(o, n, detail) && Parted::resizeMovePartition(o, n, detail, false)
+                && recreateSwap(fsNew, detail);
+        if (delta > 0)
+            return Parted::resizeMovePartition(o, n, detail, true) && maximizeEncryption(n, detail)
+                && recreateSwap(fsNew, detail);
+        return true;
+    }
+    if (delta < 0)
+        return checkRepair(fsOld, detail) && shrinkFileSystem(fsOld, fsNew, detail)
+            && shrinkEncryption(o, n, detail) && Parted::resizeMovePartition(o, n, detail, false);
+    if (delta > 0)
+        return checkRepair(fsOld, detail) && Parted::resizeMovePartition(o, n, detail, true)
+            && maximizeEncryption(n, detail) && maximizeFileSystem(fsNew, detail);
+    return true;
 }
 
 bool resizeMove(const Partition &o, Partition &n, OperationDetail &detail)
