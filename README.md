@@ -182,11 +182,29 @@ ISO 9660, RAID members, bcache and others.
 
 ## Install and build
 
-QtParted 1.0 has no release yet: build it from source, or make a package for
-your distribution with the files in [`packaging/`](packaging/README.md) (Debian/Ubuntu
-.deb with CPack, Arch PKGBUILD, Fedora spec). Every CI build also produces an
-Ubuntu 24.04 .deb, available among the artifacts of the
-[Actions runs](https://github.com/zanac/qtparted/actions).
+**Download:** the [latest release](https://github.com/zanac/qtparted/releases/latest)
+has the source tarball and a .deb for Ubuntu 24.04 / Debian testing (amd64):
+
+```sh
+sudo apt install ./qtparted_1.0.0_amd64.deb
+```
+
+For other distributions, build from source (below) or use the files in
+[`packaging/`](packaging/README.md): Arch `PKGBUILD`, Fedora spec, CPack .deb/.rpm.
+
+### Building from source
+
+The quickest way is the portable build script, which takes every path on the
+command line:
+
+```sh
+scripts/build.sh -h                         # all options
+scripts/build.sh -t                         # build and run the tests
+sudo scripts/build.sh -p /usr -i            # build and install in /usr
+scripts/build.sh -k deb                     # build a .deb in ./build
+```
+
+Or step by step with CMake, as below.
 
 Requirements:
 
@@ -300,7 +318,7 @@ system tools work inside it. The LUKS headers and passphrases stay real.
 | F3 | LUKS open/close and resize, LVM Volume Group activation, swapon/swapoff, mount/unmount | done |
 | F4 | Translations (Italian), built-in manual, packages (.deb, PKGBUILD, spec), CI | done |
 
-Next: the first 1.0 release, more translations, and testing on real hardware with
+QtParted 1.0.0 was released on 29 October 2026. Next: more translations, and testing on real hardware with
 LUKS and LVM: the development container has no device-mapper, so those paths were
 exercised with the fakecrypt double and, on CI, with the real kernel.
 
@@ -329,6 +347,7 @@ tests/          unit and end-to-end tests, fakecrypt test double
 doc/            man page, user manual and screenshots
 translations/   Qt Linguist translations
 packaging/      Arch PKGBUILD, RPM spec, notes on the CPack packages
+scripts/        portable build script
 ```
 
 ## License and credits

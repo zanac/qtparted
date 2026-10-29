@@ -1,6 +1,6 @@
 ChangeLog for QtParted:
 -----------------------
-* 1.0.0 (in development)
+* 1.0.0 (2026-10-29)
   - Rewrite for Qt 6 (C++20, CMake); all Qt 3/Qt 4 and Qt/Embedded code removed
   - New GUI-independent core modelled on GParted 1.8.1: 64-bit sector
     arithmetic, libparted backend, libblkid probing, pending operation queue

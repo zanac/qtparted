@@ -56,9 +56,17 @@
     <binary>qtparted</binary>
   </provides>
   <releases>
-    <release version="1.0.0" date="2026-10-29" type="development">
+    <release version="1.0.0" date="2026-10-29" type="stable">
+      <url>https://github.com/zanac/qtparted/releases/tag/v1.0.0</url>
       <description>
-        <p>Rewrite for Qt 6 with a new core modelled on GParted.</p>
+        <p>Rewrite for Qt 6 with a new core modelled on GParted 1.8.</p>
+        <ul>
+          <li>Partition tables, create, delete, format, flags and GPT names</li>
+          <li>Resize, move, copy and paste, also growing mounted file systems online</li>
+          <li>Check, label and new UUID for 21 file systems</li>
+          <li>LUKS open, close and resize; mount, swap and LVM Volume Group actions</li>
+          <li>Italian translation and a built-in user manual</li>
+        </ul>
       </description>
     </release>
     <release version="0.6.0" date="2012-04-07"/>
