@@ -35,7 +35,7 @@ jobs:
           fails=0
           for i in $(seq 1 25); do
             echo "=== run $i"
-            sudo scripts/ci-test.sh ./build/tests/tst_f3 || fails=$((fails+1))
+            scripts/ci-test.sh sudo ./build/tests/tst_f3 || fails=$((fails+1))
           done
           echo "::notice::tst_f3 failed $fails of 25 runs"
           test "$fails" -eq 0
