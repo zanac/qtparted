@@ -60,6 +60,36 @@ QString Tools::shellQuote(const QString &arg)
     return QLatin1Char('\'') + q + QLatin1Char('\'');
 }
 
+// Interpret progress output the way a terminal shows it: '\b' erases the previous
+// character and '\r' returns to the start of the line.
+static QString terminalText(const QString &raw)
+{
+    QString out;
+    out.reserve(raw.size());
+    int lineStart = 0;
+    int cursor = 0;  // position inside the current line
+    for (const QChar c : raw) {
+        if (c == QLatin1Char('\n')) {
+            out += c;
+            lineStart = int(out.size());
+            cursor = 0;
+        } else if (c == QLatin1Char('\r')) {
+            cursor = 0;
+        } else if (c == QLatin1Char('\b')) {
+            if (cursor > 0)
+                --cursor;
+        } else if (c.isPrint() || c == QLatin1Char('\t')) {
+            const int pos = lineStart + cursor;
+            if (pos < out.size())
+                out[pos] = c;
+            else
+                out += c;
+            ++cursor;
+        }
+    }
+    return out;
+}
+
 CommandResult runCommand(const QString &program, const QStringList &args, OperationDetail *detail,
                          const QByteArray &input, int timeoutMs)
 {
@@ -114,7 +144,7 @@ CommandResult runCommand(const QString &program, const QStringList &args, Operat
                 if (!outDetail)
                     outDetail = &cmdDetail->addChild(QString(), OperationDetail::Status::None,
                                                      OperationDetail::Font::Monospace);
-                outDetail->appendText(out);
+                outDetail->setDescription(terminalText(result.output));
             }
         }
         if (!err.isEmpty()) {
@@ -123,7 +153,7 @@ CommandResult runCommand(const QString &program, const QStringList &args, Operat
                 if (!errDetail)
                     errDetail = &cmdDetail->addChild(QString(), OperationDetail::Status::None,
                                                      OperationDetail::Font::Italic);
-                errDetail->appendText(err);
+                errDetail->setDescription(terminalText(result.error));
             }
         }
     };

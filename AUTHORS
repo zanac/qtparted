@@ -1,3 +1,14 @@
+QtParted 1.x (Qt 6 rewrite)
+---------------------------
+Vanni Brutto <zanac4ever@gmail.com>
+    Author and maintainer
+
+Partition handling logic of the 1.x core is derived from GParted
+(https://gparted.org) by Bart Hakvoort, Curtis Gedak, Mike Fleetwood and the
+GParted contributors.
+
+QtParted 0.x
+------------
 Vanni Brutto:
 QTParted program and Italian localization up to 0.4.4
 

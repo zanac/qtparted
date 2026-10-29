@@ -1,0 +1,24 @@
+[Desktop Entry]
+Type=Application
+Name=QtParted
+GenericName=Partition Editor
+GenericName[ca]=Editor de particions
+GenericName[de]=Partitionierungswerkzeug
+GenericName[es]=Editor de particiones
+GenericName[fi]=Kiintolevyn osioeditori
+GenericName[fr]=Éditeur de partitions
+GenericName[it]=Editor di partizioni
+GenericName[pl]=Edytor partycji
+GenericName[sv]=Partitionsredigerare
+Comment=Create, reorganize, and delete disk partitions
+Comment[de]=Partitionen erstellen, neu organisieren und löschen
+Comment[es]=Crear, reorganizar y eliminar particiones de disco
+Comment[fr]=Créer, réorganiser et supprimer les partitions des disques
+Comment[it]=Crea, riorganizza ed elimina le partizioni dei dischi
+Exec=qtparted %F
+Icon=qtparted
+Terminal=false
+Categories=System;Filesystem;Qt;
+Keywords=partition;disk;format;gpt;mbr;msdos;ext4;ntfs;fat;
+Keywords[it]=partizione;disco;formattare;gpt;mbr;msdos;ext4;ntfs;fat;
+StartupNotify=true

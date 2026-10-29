@@ -1,16 +1,43 @@
-.TH QTPARTED 1 "February 2011"
-.\" Please adjust this date whenever revising the manpage.
+.TH QTPARTED 1 "October 2026" "QtParted 1.0.0" "User Commands"
 .SH NAME
-QTParted \- A GUI for Parted
+qtparted \- partition editor for Qt 6 based on libparted
 .SH SYNOPSIS
 .B qtparted
+.RI [ device | image ...]
 .SH DESCRIPTION
-.B qtparted 
-is a GUI for parted resembling (by design) Powerquest Partition Magic.
-
-To use QTParted just start it using root privilege.
+.B qtparted
+is a graphical partition editor. It shows the partitions of the disks of the
+system, lets the user queue changes (create partition tables, create, delete
+and format partitions, set flags and partition names) and applies them in one
+go, with a detailed log of every step.
 .PP
+The
+.B qtparted
+command is a launcher that runs the program with root privileges through
+.BR pkexec (1).
+.PP
+Without arguments all disk devices are scanned. Devices or disk image files
+given on the command line restrict the scan to them. On image files only the
+partition table can be changed; attach the image with
+.B losetup -P
+to create file systems on it.
 .SH OPTIONS
-This program currently has no relevant command line options
+.TP
+.B \-h, \-\-help
+Show the command line help.
+.TP
+.B \-v, \-\-version
+Show the version.
+.SH FILES
+.TP
+.I /usr/share/polkit-1/actions/io.github.zanac.qtparted.policy
+polkit action used by the launcher.
+.SH SEE ALSO
+.BR parted (8),
+.BR gparted (8),
+.BR losetup (8),
+.BR pkexec (1)
 .SH AUTHOR
-This manual page was written by Vanni Brutto <zanac4ever@virgilio.it>
+Vanni Brutto <zanac4ever@gmail.com>.
+Partition handling logic derived from GParted by Bart Hakvoort, Curtis Gedak,
+Mike Fleetwood and contributors.

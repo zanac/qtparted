@@ -1,0 +1,46 @@
+#!/bin/sh
+# QtParted launcher: runs the partition editor with root privileges through
+# pkexec (polkit), the same way GParted does.
+#
+# pkexec clears the environment, so the user's graphical session is handed over
+# explicitly: X11/XWayland through DISPLAY/XAUTHORITY (kept by the polkit policy)
+# plus a temporary xhost grant for root, Wayland and desktop integration through
+# command line options understood by the program.
+
+BIN="@QTPARTED_LIBEXECDIR@/qtparted"
+
+if [ "$(id -u)" -eq 0 ]; then
+    exec "$BIN" "$@"
+fi
+
+if ! command -v pkexec >/dev/null 2>&1; then
+    echo "qtparted: pkexec (polkit) not found; please run $BIN as root" >&2
+    exit 1
+fi
+
+XHOST_GRANTED=0
+if [ -n "$DISPLAY" ] && command -v xhost >/dev/null 2>&1; then
+    if ! xhost 2>/dev/null | grep -qi '^SI:localuser:root$'; then
+        xhost +SI:localuser:root >/dev/null 2>&1 && XHOST_GRANTED=1
+    fi
+fi
+
+# Session settings that are safe to forward to the root process (no paths
+# from which code is loaded).
+for var in WAYLAND_DISPLAY XDG_RUNTIME_DIR XDG_CURRENT_DESKTOP XDG_SESSION_TYPE \
+           QT_QPA_PLATFORMTHEME QT_SCALE_FACTOR QT_SCREEN_SCALE_FACTORS \
+           QT_AUTO_SCREEN_SCALE_FACTOR KDE_FULL_SESSION KDE_SESSION_VERSION \
+           XCURSOR_THEME XCURSOR_SIZE LANG LANGUAGE LC_ALL LC_MESSAGES; do
+    eval "value=\${$var}"
+    if [ -n "$value" ]; then
+        set -- --session-env "$var=$value" "$@"
+    fi
+done
+
+pkexec --disable-internal-agent "$BIN" "$@"
+status=$?
+
+if [ "$XHOST_GRANTED" -eq 1 ]; then
+    xhost -SI:localuser:root >/dev/null 2>&1
+fi
+exit $status

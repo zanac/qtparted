@@ -1,0 +1,8 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file alias="icons/qtparted-16.png">../../data/icons/qtparted-16.png</file>
+        <file alias="icons/qtparted-32.png">../../data/icons/qtparted-32.png</file>
+        <file alias="icons/qtparted-64.png">../../data/icons/qtparted-64.png</file>
+    </qresource>
+</RCC>

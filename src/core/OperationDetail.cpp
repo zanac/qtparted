@@ -104,6 +104,13 @@ void OperationDetail::appendText(const QString &text)
     touch();
 }
 
+void OperationDetail::setDescription(const QString &text)
+{
+    QMutexLocker lock(&mutex());
+    m_description = text;
+    touch();
+}
+
 void OperationDetail::reset(const QString &description)
 {
     QMutexLocker lock(&mutex());

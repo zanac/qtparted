@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.zanac.qtparted</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-2.0-or-later</project_license>
+  <name>QtParted</name>
+  <summary>Partition editor for Qt 6</summary>
+  <summary xml:lang="it">Editor di partizioni per Qt 6</summary>
+  <developer id="io.github.zanac">
+    <name>Vanni Brutto</name>
+  </developer>
+  <description>
+    <p>
+      QtParted is a graphical partition editor based on libparted. It shows the
+      partitions of every disk, lets you queue changes and applies them in one go,
+      with a detailed log of every step.
+    </p>
+    <ul>
+      <li>Create msdos (MBR), GPT and the other partition tables supported by libparted</li>
+      <li>Create, delete and format partitions, with MiB or cylinder alignment</li>
+      <li>Over 20 file systems: ext2/3/4, btrfs, xfs, f2fs, fat16/32, exfat, ntfs, swap, LVM2 PV and more</li>
+      <li>Set partition flags and GPT partition names</li>
+      <li>Pending operations can be undone before anything is written</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.zanac.qtparted.desktop</launchable>
+  <url type="homepage">https://github.com/zanac/qtparted</url>
+  <url type="bugtracker">https://github.com/zanac/qtparted/issues</url>
+  <content_rating type="oars-1.1"/>
+  <categories>
+    <category>System</category>
+  </categories>
+  <provides>
+    <binary>qtparted</binary>
+  </provides>
+  <releases>
+    <release version="1.0.0" date="2026-10-29" type="development">
+      <description>
+        <p>Rewrite for Qt 6 with a new core modelled on GParted.</p>
+      </description>
+    </release>
+    <release version="0.6.0" date="2012-04-07"/>
+  </releases>
+</component>

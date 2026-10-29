@@ -1,5 +1,23 @@
 ChangeLog for QtParted:
 -----------------------
+* 1.0.0 (in development)
+  - Rewrite for Qt 6 (C++20, CMake); all Qt 3/Qt 4 and Qt/Embedded code removed
+  - New GUI-independent core modelled on GParted 1.8.1: 64-bit sector
+    arithmetic, libparted backend, libblkid probing, pending operation queue
+    with visual preview, merging and undo, operations applied in a worker
+    thread with a detailed, savable log
+  - Create partition tables of every libparted type (gpt, msdos, ...)
+  - Create primary/extended/logical partitions with MiB, cylinder or no
+    alignment and a graphical resizer; delete; format; clear signatures
+  - Partition flags and GPT partition names, queued as operations
+  - 21 file systems with tool detection, size limits and usage reporting
+  - Busy detection: mounts, active swap, device-mapper/LVM/MD holders
+  - File System Support dialog, Partition Information dialog
+  - pkexec launcher with polkit policy, X11/XWayland and Wayland support;
+    desktop file and AppStream metadata
+  - Disk image files can be opened from the command line
+  - Unit tests and end-to-end tests on image files and loop devices
+
 * 0.6.0 (2012-04-07)
   - Support Parted >= 3.0
   - ext2, ext3, ext4, xfs, jfs, btrfs, FAT FS creation support

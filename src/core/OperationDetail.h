@@ -44,6 +44,7 @@ public:
     // Success/Error, and attach any libparted messages captured since the last call.
     void setSuccessAndCaptureErrors(bool success);
     void appendText(const QString &text);  // for streamed command output
+    void setDescription(const QString &text);
     void reset(const QString &description);
 
     QString description() const { return m_description; }
