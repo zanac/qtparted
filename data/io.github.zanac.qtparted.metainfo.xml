@@ -60,6 +60,12 @@
     <binary>qtparted</binary>
   </provides>
   <releases>
+    <release version="1.0.1" date="2026-10-29" type="stable">
+      <url>https://github.com/zanac/qtparted/releases/tag/v1.0.1</url>
+      <description>
+        <p>Repaired application icons; German, French, Portuguese and Brazilian Portuguese translations.</p>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-10-29" type="stable">
       <url>https://github.com/zanac/qtparted/releases/tag/v1.0.0</url>
       <description>

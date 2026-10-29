@@ -1,5 +1,5 @@
 Name:           qtparted
-Version:        1.0.0
+Version:        1.0.1
 Release:        1%{?dist}
 Summary:        Partition editor for Qt 6 based on libparted
 License:        GPL-2.0-or-later
@@ -53,5 +53,8 @@ appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/io.github.zana
 %{_mandir}/man1/qtparted.1*
 
 %changelog
+* Thu Oct 29 2026 Vanni Brutto <zanac4ever@gmail.com> - 1.0.1-1
+- Repaired application icons; German, French, Portuguese and Brazilian Portuguese translations
+
 * Thu Oct 29 2026 Vanni Brutto <zanac4ever@gmail.com> - 1.0.0-1
 - Qt 6 rewrite

@@ -1,6 +1,6 @@
 # Maintainer: Vanni Brutto <zanac4ever@gmail.com>
 pkgname=qtparted
-pkgver=1.0.0
+pkgver=1.0.1
 pkgrel=1
 pkgdesc="Partition editor for Qt 6 based on libparted"
 arch=('x86_64' 'aarch64')
@@ -24,7 +24,7 @@ optdepends=('e2fsprogs: ext2/ext3/ext4'
             'device-mapper: LUKS encryption'
             'lvm2: LVM2 physical volumes')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/zanac/qtparted/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('14c782548c78aea3f4f0828e392d042d8453683b4998de4174532de5b2fa5072')
+sha256sums=('SKIP')
 
 build() {
     cmake -S "$pkgname-$pkgver" -B build -G Ninja \
