@@ -224,9 +224,16 @@ void fillPartitionDetails(Partition &p, const Device &device, const SystemInfo &
     const bool nodeExists = !device.isImageFile && QFileInfo::exists(p.path);
     if (p.type != PartitionType::Extended) {
         ProbeResult pr;
-        if (nodeExists)
+        if (nodeExists) {
             pr = Probe::path(p.path);
-        else
+            if (!pr.ok) {
+                // The node may be being recreated by udev: wait for it, else read the disk.
+                waitForPath(p.path);
+                pr = Probe::path(p.path);
+                if (!pr.ok)
+                    pr = Probe::range(device.path, p.start * p.sectorSize, p.byteLength());
+            }
+        } else
             pr = Probe::range(device.path, p.start * p.sectorSize, p.byteLength());
         if (pr.fsType != FsType::Unknown)
             p.fsType = pr.fsType;
@@ -556,6 +563,11 @@ std::optional<Device> readDevice(const QString &path, const SystemInfo &sys)
     }
 
     DiskRef disk(dev.dev);
+    // libparted opened the disk read-write to read the table; closing it makes udev
+    // re-read the partitions, which can drop and recreate their device nodes.  Let that
+    // finish before the partitions are probed through those nodes.
+    if (!device.isImageFile)
+        settle();
     if (!disk) {
         device.diskType = QCoreApplication::translate("Parted", "unrecognized");
         device.maxPrimaries = 1;

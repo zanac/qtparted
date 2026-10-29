@@ -15,6 +15,7 @@
 
 #include "Command.h"
 #include "OperationDetail.h"
+#include "Parted.h"
 #include "SystemInfo.h"
 
 #include <QCoreApplication>
@@ -132,6 +133,7 @@ bool open(const Partition &p, const QByteArray &passphrase, QString &error)
     if (r.ok()) {
         PasswordStore::store(p.uuid, passphrase);
         error.clear();
+        Parted::settle();  // the mapping's node and udev rules
         loadCache();
         return true;
     }
@@ -149,7 +151,11 @@ bool close(const Partition &p, QString &error)
         return false;
     }
     const QStringList args{ QStringLiteral("luksClose"), m.name };
+    // udev may still be probing the mapping (after an unmount, say): a close then fails
+    // with "device busy".
+    Parted::settle();
     const CommandResult r = runCommand(QStringLiteral("cryptsetup"), args);
+    Parted::settle();
     loadCache();
     if (r.ok()) {
         error.clear();
