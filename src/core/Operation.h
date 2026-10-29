@@ -20,7 +20,7 @@
 
 namespace QtParted {
 
-enum class OperationType { CreateTable, Create, Delete, Format, SetFlags, Name };
+enum class OperationType { CreateTable, Create, Delete, Format, SetFlags, Name, ResizeMove, Copy, Check, Label, ChangeUuid };
 
 class Operation
 {
@@ -133,6 +133,71 @@ class OperationName : public Operation
 {
 public:
     OperationName(const Device &device, const Partition &original, const QString &name);
+    void createDescription() override;
+    void applyToVisual(Device &device) override;
+    bool mergeWith(const Operation &candidate) override;
+
+protected:
+    bool execute(OperationDetail &detail) override;
+};
+
+class OperationResizeMove : public Operation
+{
+public:
+    OperationResizeMove(const Device &device, const Partition &original, const Partition &newPartition);
+    void createDescription() override;
+    void applyToVisual(Device &device) override;
+    bool mergeWith(const Operation &candidate) override;
+
+protected:
+    bool execute(OperationDetail &detail) override;
+};
+
+// Paste: into unallocated space (creates the partition) or over an existing partition.
+class OperationCopy : public Operation
+{
+public:
+    OperationCopy(const Device &device, const Partition &original, const Partition &newPartition,
+                  const Partition &copied);
+    const Partition &copied() const { return m_copied; }
+    void createDescription() override;
+    void applyToVisual(Device &device) override;
+
+protected:
+    bool execute(OperationDetail &detail) override;
+
+private:
+    Partition m_copied;
+};
+
+class OperationCheck : public Operation
+{
+public:
+    OperationCheck(const Device &device, const Partition &partition);
+    void createDescription() override;
+    void applyToVisual(Device &) override {}
+    bool mergeWith(const Operation &candidate) override;
+
+protected:
+    bool execute(OperationDetail &detail) override;
+};
+
+class OperationLabel : public Operation
+{
+public:
+    OperationLabel(const Device &device, const Partition &original, const QString &label);
+    void createDescription() override;
+    void applyToVisual(Device &device) override;
+    bool mergeWith(const Operation &candidate) override;
+
+protected:
+    bool execute(OperationDetail &detail) override;
+};
+
+class OperationChangeUuid : public Operation
+{
+public:
+    OperationChangeUuid(const Device &device, const Partition &original);
     void createDescription() override;
     void applyToVisual(Device &device) override;
     bool mergeWith(const Operation &candidate) override;

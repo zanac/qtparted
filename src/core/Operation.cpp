@@ -13,6 +13,7 @@
 #include "Operation.h"
 
 #include "FileSystem.h"
+#include "Steps.h"
 
 #include <QCoreApplication>
 
@@ -194,7 +195,14 @@ bool OperationCreate::mergeWith(const Operation &candidate)
     case OperationType::Format:
     case OperationType::SetFlags:
     case OperationType::Name:
+    case OperationType::ResizeMove:
         m_new = candidate.partitionNew();
+        if (m_new.type == PartitionType::Extended) {
+            // Logical partitions are separate operations: only the space is ours.
+            m_new.logicals.clear();
+            m_new.logicals.push_back(Partition::makeUnallocated(m_new.devicePath, m_new.start, m_new.end,
+                                                                m_new.sectorSize, true));
+        }
         createDescription();
         return true;
     default:
@@ -421,6 +429,240 @@ bool OperationName::mergeWith(const Operation &candidate)
 bool OperationName::execute(OperationDetail &detail)
 {
     return Parted::calibrate(m_new, detail) && Parted::setName(m_new, detail);
+}
+
+// --- resize / move -------------------------------------------------------------------
+
+OperationResizeMove::OperationResizeMove(const Device &device, const Partition &original, const Partition &newPartition)
+    : Operation(OperationType::ResizeMove, device, original, newPartition)
+{
+}
+
+void OperationResizeMove::createDescription()
+{
+    const QString path = m_original.path;
+    const QString from = formatSize(m_original.length(), m_original.sectorSize);
+    const QString to = formatSize(m_new.length(), m_new.sectorSize);
+    const bool right = m_new.start > m_original.start;
+    const bool left = m_new.start < m_original.start;
+    if (m_new.length() > m_original.length())
+        m_description = right ? tr("Move %1 to the right and grow it from %2 to %3").arg(path, from, to)
+                      : left  ? tr("Move %1 to the left and grow it from %2 to %3").arg(path, from, to)
+                              : tr("Grow %1 from %2 to %3").arg(path, from, to);
+    else if (m_new.length() < m_original.length())
+        m_description = right ? tr("Move %1 to the right and shrink it from %2 to %3").arg(path, from, to)
+                      : left  ? tr("Move %1 to the left and shrink it from %2 to %3").arg(path, from, to)
+                              : tr("Shrink %1 from %2 to %3").arg(path, from, to);
+    else
+        m_description = right ? tr("Move %1 to the right").arg(path)
+                      : left  ? tr("Move %1 to the left").arg(path)
+                              : tr("resize/move %1 (new and old partition have the same size and position.  "
+                                   "Hence continuing anyway)").arg(path);
+}
+
+static void removeAdjacentUnallocated(PartitionVector &partitions, int index)
+{
+    if (index + 1 < int(partitions.size()) && partitions[size_t(index + 1)].type == PartitionType::Unallocated)
+        partitions.erase(partitions.begin() + index + 1);
+    if (index - 1 >= 0 && partitions[size_t(index - 1)].type == PartitionType::Unallocated)
+        partitions.erase(partitions.begin() + (index - 1));
+}
+
+void OperationResizeMove::applyToVisual(Device &device)
+{
+    PartitionVector &partitions = device.partitions;
+    if (m_original.type == PartitionType::Extended) {
+        int ext = findExtended(partitions);
+        if (ext < 0)
+            return;
+        removeAdjacentUnallocated(partitions, ext);
+        ext = findExtended(partitions);
+        Partition &x = partitions[size_t(ext)];
+        x.start = m_new.start;
+        x.end = m_new.end;
+        insertUnallocated(m_device.path, partitions, 0, m_device.length - 1, m_device.sectorSize, false);
+        ext = findExtended(partitions);
+        PartitionVector &logicals = partitions[size_t(ext)].logicals;
+        if (!logicals.empty() && logicals.front().type == PartitionType::Unallocated)
+            logicals.erase(logicals.begin());
+        if (!logicals.empty() && logicals.back().type == PartitionType::Unallocated)
+            logicals.pop_back();
+        insertUnallocated(m_device.path, logicals, partitions[size_t(ext)].start, partitions[size_t(ext)].end,
+                          m_device.sectorSize, true);
+        return;
+    }
+    if (m_original.insideExtended) {
+        const int ext = findExtended(partitions);
+        if (ext < 0)
+            return;
+        Partition &x = partitions[size_t(ext)];
+        const int index = findIndexOriginal(x.logicals);
+        if (index < 0)
+            return;
+        x.logicals[size_t(index)] = m_new;
+        removeAdjacentUnallocated(x.logicals, index);
+        insertUnallocated(m_device.path, x.logicals, x.start, x.end, m_device.sectorSize, true);
+    } else {
+        const int index = findIndexOriginal(partitions);
+        if (index < 0)
+            return;
+        partitions[size_t(index)] = m_new;
+        removeAdjacentUnallocated(partitions, index);
+        insertUnallocated(m_device.path, partitions, 0, m_device.length - 1, m_device.sectorSize, false);
+    }
+}
+
+bool OperationResizeMove::mergeWith(const Operation &candidate)
+{
+    if (candidate.type() == OperationType::ResizeMove && m_new == candidate.original()) {
+        m_new = candidate.partitionNew();
+        createDescription();
+        return true;
+    }
+    return false;
+}
+
+bool OperationResizeMove::execute(OperationDetail &detail)
+{
+    if (!Parted::calibrate(m_original, detail))
+        return false;
+    // Online changes are expected to find the partition in use.
+    if (!Parted::verifyTarget(m_original, true, detail, m_original.busy))
+        return false;
+    m_new.path = m_original.path;
+    m_new.number = m_original.number;
+    m_new.busy = m_original.busy;
+    m_new.mountPoints = m_original.mountPoints;
+    return Steps::resizeMove(m_original, m_new, detail);
+}
+
+// --- copy / paste ---------------------------------------------------------------------
+
+OperationCopy::OperationCopy(const Device &device, const Partition &original, const Partition &newPartition,
+                             const Partition &copied)
+    : Operation(OperationType::Copy, device, original, newPartition)
+    , m_copied(copied)
+{
+}
+
+void OperationCopy::createDescription()
+{
+    if (m_original.type == PartitionType::Unallocated)
+        m_description = tr("Copy %1 to %2 (start at %3)")
+                            .arg(m_copied.path, m_device.path, formatSize(m_new.start, m_new.sectorSize));
+    else
+        m_description = tr("Copy %1 to %2").arg(m_copied.path, m_original.path);
+}
+
+void OperationCopy::applyToVisual(Device &device)
+{
+    if (m_original.type == PartitionType::Unallocated)
+        insertNew(device.partitions);
+    else
+        substituteNew(device.partitions);
+}
+
+bool OperationCopy::execute(OperationDetail &detail)
+{
+    if (!Parted::calibrate(m_copied, detail) || !Parted::verifyTarget(m_copied, true, detail))
+        return false;
+    if (m_original.type != PartitionType::Unallocated) {
+        if (!Parted::calibrate(m_new, detail) || !Parted::verifyTarget(m_new, true, detail))
+            return false;
+        m_original.path = m_new.path;
+    }
+    return Steps::copy(m_copied, m_new, detail);
+}
+
+// --- check ----------------------------------------------------------------------------------
+
+OperationCheck::OperationCheck(const Device &device, const Partition &partition)
+    : Operation(OperationType::Check, device, partition, partition)
+{
+}
+
+void OperationCheck::createDescription()
+{
+    m_description = tr("Check and repair file system (%1) on %2").arg(fsName(m_original.fsType), m_original.path);
+}
+
+bool OperationCheck::mergeWith(const Operation &candidate)
+{
+    return candidate.type() == OperationType::Check && m_new == candidate.original();
+}
+
+bool OperationCheck::execute(OperationDetail &detail)
+{
+    return Parted::calibrate(m_new, detail) && Parted::verifyTarget(m_new, true, detail)
+        && Steps::checkRepair(m_new, detail) && Steps::maximizeFileSystem(m_new, detail);
+}
+
+// --- file system label --------------------------------------------------------------------
+
+OperationLabel::OperationLabel(const Device &device, const Partition &original, const QString &label)
+    : Operation(OperationType::Label, device, original, original)
+{
+    m_new.fsLabel = label;
+}
+
+void OperationLabel::createDescription()
+{
+    if (m_new.fsLabel.isEmpty())
+        m_description = tr("Clear file system label on %1").arg(m_original.path);
+    else
+        m_description = tr("Set file system label \"%1\" on %2").arg(m_new.fsLabel, m_original.path);
+}
+
+void OperationLabel::applyToVisual(Device &device)
+{
+    if (Partition *p = findOriginal(device.partitions))
+        p->fsLabel = m_new.fsLabel;
+}
+
+bool OperationLabel::mergeWith(const Operation &candidate)
+{
+    if (candidate.type() == OperationType::Label && m_new == candidate.original()) {
+        m_new.fsLabel = candidate.partitionNew().fsLabel;
+        createDescription();
+        return true;
+    }
+    return false;
+}
+
+bool OperationLabel::execute(OperationDetail &detail)
+{
+    return Parted::calibrate(m_new, detail) && Parted::verifyTarget(m_new, false, detail, m_new.busy)
+        && Steps::labelFileSystem(m_new, detail);
+}
+
+// --- new UUID -------------------------------------------------------------------------------
+
+OperationChangeUuid::OperationChangeUuid(const Device &device, const Partition &original)
+    : Operation(OperationType::ChangeUuid, device, original, original)
+{
+    m_new.uuid = tr("(new random UUID)");
+}
+
+void OperationChangeUuid::createDescription()
+{
+    m_description = tr("Set a new random UUID on %1 file system on %2").arg(fsName(m_original.fsType), m_original.path);
+}
+
+void OperationChangeUuid::applyToVisual(Device &device)
+{
+    if (Partition *p = findOriginal(device.partitions))
+        p->uuid = m_new.uuid;
+}
+
+bool OperationChangeUuid::mergeWith(const Operation &candidate)
+{
+    return candidate.type() == OperationType::ChangeUuid && m_new == candidate.original();
+}
+
+bool OperationChangeUuid::execute(OperationDetail &detail)
+{
+    return Parted::calibrate(m_new, detail) && Parted::verifyTarget(m_new, false, detail)
+        && Steps::changeUuid(m_new, detail);
 }
 
 } // namespace QtParted

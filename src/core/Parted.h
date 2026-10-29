@@ -54,10 +54,12 @@ std::optional<Device> readDevice(const QString &path, const SystemInfo &sys);
 bool createDiskLabel(const Device &device, const QString &diskType, OperationDetail &detail);
 bool calibrate(Partition &partition, OperationDetail &detail);
 // Right before changing a partition: refuse when it is in use now (it may have been
-// mounted after the operation was queued) and, with checkKernelGeometry, when the
+// mounted after the operation was queued; skipped for online changes, expectInUse)
+// and, with checkKernelGeometry, when the
 // kernel's idea of its position differs from the partition table (mkfs writes through
 // the kernel device node, libparted through the table).
-bool verifyTarget(const Partition &partition, bool checkKernelGeometry, OperationDetail &detail);
+bool verifyTarget(const Partition &partition, bool checkKernelGeometry, OperationDetail &detail,
+                  bool expectInUse = false);
 // Before deleting a logical partition: the following logical ones are renumbered by the
 // kernel, which is impossible while they are in use.
 bool verifyFollowingLogicalsUnused(const Partition &partition, OperationDetail &detail);
@@ -72,6 +74,24 @@ bool setFlags(const Partition &partition, const QStringList &from, const QString
 QStringList readFlags(const Partition &partition);
 bool setName(const Partition &partition, OperationDetail &detail);
 bool eraseSignatures(const Partition &partition, OperationDetail &detail);
+
+// --- F2: resize / move / copy primitives ---------------------------------------
+// Change the boundaries of `old` in the partition table to those of `newPartition`
+// (updated with what libparted actually used).  With rollbackOnFail a failed change is
+// undone.
+bool resizeMovePartition(const Partition &old, Partition &newPartition, OperationDetail &detail,
+                         bool rollbackOnFail);
+// Let libparted round boundaries (cylinder alignment) before the real change.
+bool calculateExactGeometry(const Partition &old, Partition &newPartition, OperationDetail &detail);
+// libparted-fs-resize (FAT, HFS, HFS+): resize the file system from old to new geometry.
+bool libpartedFsResize(const Partition &old, const Partition &newPartition, OperationDetail &detail);
+void libpartedFsUsage(Partition &partition);
+// Copy `length` bytes between devices (or within one), handling overlap.  `done`
+// returns the bytes copied, counted from the end when copying backwards.
+bool copyBlocks(const QString &srcDevice, const QString &dstDevice, Sector srcStart, Sector dstStart,
+                ByteValue length, OperationDetail &detail, ByteValue &done);
+// NTFS keeps the partition start in its boot sector ("hidden sectors").
+bool updateBootSector(const Partition &partition, OperationDetail &detail);
 
 // GParted's compose_partition_flags(): flags implied by file system / table type.
 void composePartitionFlags(Partition &partition, const QString &diskType);

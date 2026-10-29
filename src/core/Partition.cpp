@@ -14,6 +14,8 @@
 
 #include <QCoreApplication>
 
+#include <algorithm>
+
 namespace QtParted {
 
 void Partition::setUsage(Sector fsSize, Sector fsUnused)
@@ -38,6 +40,33 @@ void Partition::clearUsage()
     sectorsUnused = -1;
     sectorsUnallocated = 0;
     fsBlockSize = -1;
+}
+
+Sector Partition::significantUnallocatedThreshold() const
+{
+    constexpr double higher = 0.05;
+    constexpr double lower = 0.02;
+    const Sector len = length();
+    const ByteValue bytes = len * sectorSize;
+    Sector significant;
+    if (bytes <= 0)
+        significant = 1;
+    else if (bytes <= 100 * MiB)
+        significant = qRound64(len * higher);
+    else if (bytes <= 1 * GiB) {
+        const double fraction = (higher - lower) - double(bytes - 100 * MiB) * (higher - lower) / double(1 * GiB - 100 * MiB)
+                              + lower;
+        significant = qRound64(len * fraction);
+    } else
+        significant = qRound64(len * lower);
+    return significant <= 1 ? 1 : significant;
+}
+
+Sector Partition::estimatedMinSize() const
+{
+    if (sectorsUsed < 0)
+        return -1;
+    return sectorsUsed + std::min(sectorsUnallocated, significantUnallocatedThreshold());
 }
 
 void Partition::setOnlyFlag(const QString &flag)

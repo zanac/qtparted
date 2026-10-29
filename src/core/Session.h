@@ -28,6 +28,12 @@ struct AllowedActions {
     bool name = false;
     bool flags = false;
     bool createTable = false;
+    bool resize = false;
+    bool copy = false;
+    bool paste = false;
+    bool check = false;
+    bool label = false;
+    bool uuid = false;
 };
 
 // The devices as scanned plus the pending operations: the model behind the main window.
@@ -52,8 +58,9 @@ public:
     int nextNewNumber() const;  // "New Partition #N"
 
     static bool validPartition(const Device &device, const Partition &partition, QString *error);
+    // `clipboard` is the partition copied for pasting (from any device), if any.
     static AllowedActions allowedActions(const Device &display, const Partition *selected,
-                                         int pendingOnDevice);
+                                         int pendingOnDevice, const Partition *clipboard = nullptr);
 };
 
 } // namespace QtParted

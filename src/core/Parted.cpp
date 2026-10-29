@@ -24,6 +24,7 @@
 #include <QFileInfo>
 #include <QMutex>
 #include <QThread>
+#include <QtEndian>
 
 #include <parted/parted.h>
 
@@ -34,6 +35,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <functional>
+#include <memory>
 #include <vector>
 
 namespace QtParted {
@@ -658,10 +660,11 @@ static QString sysfsValue(const QString &devPath, const QString &attribute)
     return QString::fromLatin1(f.readAll()).trimmed();
 }
 
-bool verifyTarget(const Partition &p, bool checkKernelGeometry, OperationDetail &detail)
+bool verifyTarget(const Partition &p, bool checkKernelGeometry, OperationDetail &detail, bool expectInUse)
 {
-    OperationDetail &od = detail.addChild(tr("check that %1 is not in use").arg(p.path));
-    if (SystemInfo::isInUse(p.path)) {
+    OperationDetail &od = detail.addChild(expectInUse ? tr("check the position of %1").arg(p.path)
+                                                      : tr("check that %1 is not in use").arg(p.path));
+    if (!expectInUse && SystemInfo::isInUse(p.path)) {
         od.addChild(tr("%1 is in use (mounted, active swap, or used by another device). "
                        "Nothing was changed on it.").arg(p.path),
                     OperationDetail::Status::None, OperationDetail::Font::Italic);
@@ -674,7 +677,10 @@ bool verifyTarget(const Partition &p, bool checkKernelGeometry, OperationDetail 
         const qint64 start = sysfsValue(p.path, QStringLiteral("start")).toLongLong(&okStart);
         const qint64 size = sysfsValue(p.path, QStringLiteral("size")).toLongLong(&okSize);
         const qint64 factor = p.sectorSize / 512;
-        if (okStart && okSize && (start != p.start * factor || size != p.length() * factor)) {
+        // The kernel registers an msdos extended partition with a tiny size (it holds only
+        // the EBR chain), so only its start can be compared.
+        const bool sizeDiffers = p.type != PartitionType::Extended && size != p.length() * factor;
+        if (okStart && okSize && (start != p.start * factor || sizeDiffers)) {
             od.addChild(tr("The kernel sees %1 at a different position than the partition table "
                            "(kernel: start %2, size %3; table: start %4, size %5, in 512 byte units). "
                            "Refresh the devices or reboot before changing it.")
@@ -1028,6 +1034,301 @@ bool eraseSignatures(const Partition &p, OperationDetail &detail)
         ped_device_close(dev.dev);
         settle();
     }
+    od.setSuccessAndCaptureErrors(ok);
+    return ok;
+}
+
+// --- F2: resize / move / copy primitives -------------------------------------------
+
+static QString resizeDescription(const Partition &o, const Partition &n)
+{
+    const QString from = formatSize(o.length(), o.sectorSize);
+    const QString to = formatSize(n.length(), n.sectorSize);
+    const bool grow = n.length() > o.length();
+    const bool shrink = n.length() < o.length();
+    const bool right = n.start > o.start && n.end > o.end;
+    const bool left = n.start < o.start && n.end < o.end;
+    if (right)
+        return grow ? tr("move partition to the right and grow it from %1 to %2").arg(from, to)
+             : shrink ? tr("move partition to the right and shrink it from %1 to %2").arg(from, to)
+                      : tr("move partition to the right");
+    if (left)
+        return grow ? tr("move partition to the left and grow it from %1 to %2").arg(from, to)
+             : shrink ? tr("move partition to the left and shrink it from %1 to %2").arg(from, to)
+                      : tr("move partition to the left");
+    if (grow)
+        return tr("grow partition from %1 to %2").arg(from, to);
+    if (shrink)
+        return tr("shrink partition from %1 to %2").arg(from, to);
+    return tr("resize/move partition");
+}
+
+static QString boundsText(const char *startLabel, const char *endLabel, const char *sizeLabel, Sector start,
+                          Sector end, ByteValue sectorSize)
+{
+    return tr(startLabel).arg(start) + QLatin1Char('\n') + tr(endLabel).arg(end) + QLatin1Char('\n')
+         + tr(sizeLabel).arg(end - start + 1).arg(formatSize(end - start + 1, sectorSize));
+}
+
+// Change the geometry of the partition found by `lookup` (strict match, or any active
+// partition of the right type at the given sector for rollback).
+static bool setPartitionGeometry(const Partition &lookup, bool strictLookup, const Partition &target,
+                                 Sector &newStart, Sector &newEnd)
+{
+    DeviceRef dev(lookup.devicePath);
+    DiskRef disk(dev ? dev.dev : nullptr);
+    if (!disk)
+        return false;
+    PedPartition *lp = nullptr;
+    if (strictLookup) {
+        lp = findPartition(disk.disk, lookup);
+    } else {
+        lp = lookup.type == PartitionType::Extended ? ped_disk_extended_partition(disk.disk)
+                                                     : ped_disk_get_partition_by_sector(disk.disk, lookup.middleSector());
+        if (lp && !ped_partition_is_active(lp))
+            lp = nullptr;
+    }
+    if (!lp)
+        return false;
+    PedConstraint *constraint = nullptr;
+    if (PedGeometry *geom = ped_geometry_new(dev.dev, target.start, target.length())) {
+        constraint = ped_constraint_exact(geom);
+        ped_geometry_destroy(geom);
+    }
+    if (!constraint)
+        return false;
+    bool ok = false;
+    if (ped_disk_set_partition_geom(disk.disk, lp, constraint, target.start, target.end)) {
+        newStart = lp->geom.start;
+        newEnd = lp->geom.end;
+        ok = newStart == target.start && newEnd == target.end && commit(disk.disk);
+    }
+    ped_constraint_destroy(constraint);
+    return ok;
+}
+
+bool resizeMovePartition(const Partition &o, Partition &n, OperationDetail &detail, bool rollbackOnFail)
+{
+    if (n.type == PartitionType::Unpartitioned)
+        return true;  // nothing to change on a whole disk device
+
+    OperationDetail &od = detail.addChild(resizeDescription(o, n));
+    if (o.start == n.start && o.end == n.end) {
+        od.addChild(tr("new and old partition have the same size and position.  Hence skipping this operation"),
+                    OperationDetail::Status::None, OperationDetail::Font::Italic);
+        od.setSuccessAndCaptureErrors(true);
+        return true;
+    }
+    od.addChild(boundsText("old start: %1", "old end: %1", "old size: %1 (%2)", o.start, o.end, o.sectorSize),
+                OperationDetail::Status::None, OperationDetail::Font::Italic);
+
+    Sector newStart = -1, newEnd = -1;
+    const bool ok = setPartitionGeometry(o, true, n, newStart, newEnd);
+    if (ok) {
+        od.addChild(boundsText("new start: %1", "new end: %1", "new size: %1 (%2)", newStart, newEnd, n.sectorSize),
+                    OperationDetail::Status::None, OperationDetail::Font::Italic);
+        waitForPath(n.path);
+    } else {
+        od.addChild(boundsText("requested start: %1", "requested end: %1", "requested size: %1 (%2)", n.start, n.end,
+                               n.sectorSize),
+                    OperationDetail::Status::None, OperationDetail::Font::Italic);
+    }
+    od.setSuccessAndCaptureErrors(ok);
+
+    if (!ok && rollbackOnFail) {
+        // The failed change may or may not have reached the disk: find the partition
+        // by the middle of the old/new intersection and put the old geometry back.
+        OperationDetail &rb = detail.addChild(tr("attempt to rollback failed change to the partition"));
+        Partition intersection = n;
+        intersection.start = std::max(o.start, n.start);
+        intersection.end = std::min(o.end, n.end);
+        Sector s = -1, e = -1;
+        const bool restored = setPartitionGeometry(intersection, false, o, s, e);
+        rb.addChild(boundsText("original start: %1", "original end: %1", "original size: %1 (%2)", o.start, o.end,
+                               o.sectorSize),
+                    OperationDetail::Status::None, OperationDetail::Font::Italic);
+        rb.setSuccessAndCaptureErrors(restored);
+    }
+    return ok;
+}
+
+bool calculateExactGeometry(const Partition &o, Partition &n, OperationDetail &detail)
+{
+    OperationDetail &od = detail.addChild(tr("calculate new size and position of %1").arg(n.path));
+    od.addChild(boundsText("requested start: %1", "requested end: %1", "requested size: %1 (%2)", n.start, n.end,
+                           n.sectorSize),
+                OperationDetail::Status::None, OperationDetail::Font::Italic);
+    bool ok = false;
+    DeviceRef dev(o.devicePath);
+    DiskRef disk(dev ? dev.dev : nullptr);
+    if (disk) {
+        if (PedPartition *lp = findPartition(disk.disk, o)) {
+            if (PedConstraint *constraint = ped_constraint_any(dev.dev)) {
+                // In memory only: the table is not committed.
+                if (ped_disk_set_partition_geom(disk.disk, lp, constraint, n.start, n.end)) {
+                    n.start = lp->geom.start;
+                    n.end = lp->geom.end;
+                    ok = true;
+                }
+                ped_constraint_destroy(constraint);
+            }
+        }
+    }
+    if (ok)
+        od.addChild(boundsText("new start: %1", "new end: %1", "new size: %1 (%2)", n.start, n.end, n.sectorSize),
+                    OperationDetail::Status::None, OperationDetail::Font::Italic);
+    od.setSuccessAndCaptureErrors(ok);
+    return ok;
+}
+
+bool libpartedFsResize(const Partition &o, const Partition &n, OperationDetail &detail)
+{
+    detail.addChild(tr("using libparted"), OperationDetail::Status::None);
+    bool ok = false;
+    DeviceRef dev(o.devicePath);
+    if (!dev)
+        return false;
+    if (PedGeometry *oldGeom = ped_geometry_new(dev.dev, o.start, o.length())) {
+        PedFileSystem *fs = ped_file_system_open(oldGeom);
+        ped_geometry_destroy(oldGeom);
+        if (fs) {
+            if (PedGeometry *newGeom = ped_geometry_new(dev.dev, n.start, n.length())) {
+                ok = ped_file_system_resize(fs, newGeom, nullptr);
+                ped_geometry_destroy(newGeom);
+            }
+            ped_file_system_close(fs);
+        }
+    }
+    if (ok) {
+        // Flush the caches so later tools working on the partition node see the change.
+        if (ped_device_open(dev.dev)) {
+            ped_device_sync(dev.dev);
+            ped_device_close(dev.dev);
+        }
+    }
+    return ok;
+}
+
+void libpartedFsUsage(Partition &p)
+{
+    DeviceRef dev(p.devicePath);
+    if (!dev)
+        return;
+    if (PedGeometry *geom = ped_geometry_new(dev.dev, p.start, p.length())) {
+        if (PedFileSystem *fs = ped_file_system_open(geom)) {
+            if (PedConstraint *c = ped_file_system_get_resize_constraint(fs)) {
+                p.setUsage(fs->geom->length, fs->geom->length - c->min_size);
+                ped_constraint_destroy(c);
+            }
+            ped_file_system_close(fs);
+        }
+        ped_geometry_destroy(geom);
+    }
+    OperationDetail::takeLibpartedMessages();
+}
+
+bool copyBlocks(const QString &srcDevice, const QString &dstDevice, Sector srcStart, Sector dstStart,
+                ByteValue length, OperationDetail &detail, ByteValue &done)
+{
+    done = 0;
+    detail.addChild(tr("using internal algorithm"), OperationDetail::Status::None);
+    OperationDetail &od = detail.addChild(tr("copy %1").arg(formatBytes(length)));
+
+    DeviceRef src(srcDevice);
+    std::unique_ptr<DeviceRef> dstOwner;
+    PedDevice *dst = nullptr;
+    if (src && srcDevice != dstDevice) {
+        dstOwner = std::make_unique<DeviceRef>(dstDevice);
+        dst = dstOwner->dev;
+    } else {
+        dst = src.dev;
+    }
+    if (!src || !dst) {
+        od.setSuccessAndCaptureErrors(false);
+        return false;
+    }
+    const ByteValue sectorSize = src.dev->sector_size;
+    if (dst->sector_size != sectorSize || length % sectorSize != 0) {
+        od.addChild(tr("Copying between devices with different sector sizes is not supported"),
+                    OperationDetail::Status::Error);
+        return false;
+    }
+    if (!ped_device_open(src.dev)) {
+        od.setSuccessAndCaptureErrors(false);
+        return false;
+    }
+    if (dst != src.dev && !ped_device_open(dst)) {
+        ped_device_close(src.dev);
+        od.setSuccessAndCaptureErrors(false);
+        return false;
+    }
+
+    // Within one device, a copy to a higher address goes backwards so overlapping
+    // source data is read before it is overwritten.
+    const bool backwards = dst == src.dev && dstStart > srcStart;
+    constexpr ByteValue kBlock = 4 * MiB;
+    void *raw = nullptr;
+    if (posix_memalign(&raw, 4096, size_t(kBlock)) != 0)
+        raw = nullptr;
+    std::unique_ptr<void, decltype(&std::free)> buffer(raw, &std::free);
+
+    OperationDetail &progress = od.addChild(QString(), OperationDetail::Status::None, OperationDetail::Font::Italic);
+    QElapsedTimer tick;
+    tick.start();
+    bool ok = buffer != nullptr;
+    QString error;
+    while (ok && done < length) {
+        const ByteValue chunk = std::min(kBlock, length - done);
+        const ByteValue offset = backwards ? length - done - chunk : done;
+        const Sector count = chunk / sectorSize;
+        if (!ped_device_read(src.dev, buffer.get(), srcStart + offset / sectorSize, count)) {
+            error = tr("Error while reading block at sector %1").arg(srcStart + offset / sectorSize);
+            ok = false;
+        } else if (!ped_device_write(dst, buffer.get(), dstStart + offset / sectorSize, count)) {
+            error = tr("Error while writing block at sector %1").arg(dstStart + offset / sectorSize);
+            ok = false;
+        } else {
+            done += chunk;
+        }
+        if (tick.elapsed() > 500 || done == length || !ok) {
+            progress.setDescription(tr("%1 of %2 copied").arg(formatBytes(done), formatBytes(length)));
+            tick.restart();
+        }
+    }
+    if (!error.isEmpty())
+        progress.addChild(error, OperationDetail::Status::None, OperationDetail::Font::Italic);
+    ok = ped_device_sync(dst) && ok;
+    if (dst != src.dev)
+        ped_device_close(dst);
+    ped_device_close(src.dev);
+    settle();
+    detail.addChild(tr("%1 (%2 B) copied").arg(formatBytes(done)).arg(done), OperationDetail::Status::None);
+    od.setSuccessAndCaptureErrors(ok);
+    return ok;
+}
+
+bool updateBootSector(const Partition &p, OperationDetail &detail)
+{
+    if (p.fsType != FsType::Ntfs)
+        return true;
+    // Windows only boots when the NTFS boot sector's "hidden sectors" (offset 0x1C)
+    // matches the partition start.
+    OperationDetail &od = detail.addChild(tr("update boot sector of %1 file system on %2").arg(fsName(p.fsType), p.path));
+    if ((p.start >> 32) != 0) {
+        od.addChild(tr("Partition start (%1) is beyond sector 4294967295 (2^32-1).\n"
+                       "Windows will not be able to boot from this file system.").arg(p.start),
+                    OperationDetail::Status::None, OperationDetail::Font::Italic);
+        od.setStatus(OperationDetail::Status::Warning);
+        return true;
+    }
+    const quint32 v = qToLittleEndian(quint32(p.start));
+    const int fd = ::open(p.path.toLocal8Bit().constData(), O_WRONLY | O_CLOEXEC);
+    bool ok = fd >= 0 && ::pwrite(fd, &v, sizeof v, 0x1C) == ssize_t(sizeof v) && ::fsync(fd) == 0;
+    if (fd >= 0)
+        ::close(fd);
+    if (!ok)
+        od.addChild(tr("Error trying to write to boot sector in %1").arg(p.path), OperationDetail::Status::None,
+                    OperationDetail::Font::Italic);
     od.setSuccessAndCaptureErrors(ok);
     return ok;
 }

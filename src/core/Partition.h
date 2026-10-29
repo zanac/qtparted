@@ -91,6 +91,11 @@ struct Partition {
     // fsSize/fsUnused in sectors as reported by the file system tools (-1 = unknown size).
     void setUsage(Sector fsSize, Sector fsUnused);
     void clearUsage();
+    // Smallest size the file system can be shrunk to (sectors), -1 when unknown.
+    Sector estimatedMinSize() const;
+    // Unallocated space inside the partition below this is considered intrinsic to the
+    // file system (GParted's significant threshold).
+    Sector significantUnallocatedThreshold() const;
 
     bool isFlagSet(const QString &flag) const { return flags.contains(flag); }
     void setOnlyFlag(const QString &flag);

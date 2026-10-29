@@ -3,6 +3,7 @@
 add_library(qtparted-core STATIC
     core/Command.cpp
     core/FileSystem.cpp
+    core/FsMaintenance.cpp
     core/FsType.cpp
     core/Layout.cpp
     core/Operation.cpp
@@ -11,12 +12,13 @@ add_library(qtparted-core STATIC
     core/Partition.cpp
     core/Probe.cpp
     core/Session.cpp
+    core/Steps.cpp
     core/SystemInfo.cpp
     core/Units.cpp
     core/Worker.cpp
 )
 target_include_directories(qtparted-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/core)
-target_link_libraries(qtparted-core PUBLIC Qt6::Core PkgConfig::PARTED PkgConfig::BLKID)
+target_link_libraries(qtparted-core PUBLIC Qt6::Core PkgConfig::PARTED PkgConfig::PARTED_FS_RESIZE PkgConfig::BLKID)
 
 if(NOT QTPARTED_BUILD_GUI)
     return()

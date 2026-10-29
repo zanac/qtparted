@@ -13,6 +13,9 @@
  */
 #include "Session.h"
 
+#include "FileSystem.h"
+#include "Layout.h"
+
 #include <QCoreApplication>
 
 #include <algorithm>
@@ -73,7 +76,8 @@ bool Session::addOperation(std::unique_ptr<Operation> op, QString *error)
 {
     if (!op)
         return false;
-    if (op->type() == OperationType::Create) {
+    if (op->type() == OperationType::Create || op->type() == OperationType::Copy
+        || op->type() == OperationType::ResizeMove) {
         const int index = deviceIndex(op->device().path);
         if (index < 0 || !validPartition(devices[size_t(index)], op->partitionNew(), error))
             return false;
@@ -126,12 +130,14 @@ int Session::nextNewNumber() const
 {
     int highest = 0;
     for (const auto &op : operations)
-        if (op->type() == OperationType::Create && op->partitionNew().status == PartitionStatus::New)
+        if ((op->type() == OperationType::Create && op->partitionNew().status == PartitionStatus::New)
+            || (op->type() == OperationType::Copy && op->partitionNew().status == PartitionStatus::Copy))
             highest = std::max(highest, op->partitionNew().number);
     return highest + 1;
 }
 
-AllowedActions Session::allowedActions(const Device &display, const Partition *sel, int pendingOnDevice)
+AllowedActions Session::allowedActions(const Device &display, const Partition *sel, int pendingOnDevice,
+                                      const Partition *clipboard)
 {
     AllowedActions a;
     a.createTable = display.length > 0 && display.highestBusy == 0 && pendingOnDevice == 0;
@@ -139,33 +145,64 @@ AllowedActions Session::allowedActions(const Device &display, const Partition *s
         return a;
     a.info = true;
 
+    const FsSupport fs = FileSystemRegistry::instance().support(sel->fsType);
+    const bool real = sel->status == PartitionStatus::Real;
+    const bool isNew = sel->status == PartitionStatus::New;
+    // File system tools need a device node: no file system changes on image files.
+    const bool fsTools = !display.isImageFile;
+
     const bool inTable = sel->isPartitionInTable();
-    if (inTable && display.partitionNamingSupported() && !display.readonly
-        && (sel->status == PartitionStatus::Real || sel->status == PartitionStatus::New))
+    if (inTable && display.partitionNamingSupported() && !display.readonly && (real || isNew))
         a.name = true;
-    if (inTable && sel->status == PartitionStatus::Real && !display.readonly && !sel->availableFlags.isEmpty())
+    if (inTable && real && !display.readonly && !sel->availableFlags.isEmpty())
         a.flags = true;
 
-    // Only informational actions while the file system is in use.
-    if (sel->busy)
+    if (sel->busy) {
+        // Online changes need the kernel to accept a changed partition table.
+        if (!display.readonly && fsTools && inTable && (fs.canResizeOnline() || sel->type == PartitionType::Extended))
+            a.resize = true;
+        if (real && fsTools && fs.onlineWriteLabel)
+            a.label = true;
+        // Only informational and online actions while the file system is in use.
         return a;
+    }
 
     if (sel->fsType == FsType::Unallocated)
         a.create = true;
-    if (sel->type == PartitionType::Unallocated)
+    if (sel->type == PartitionType::Unallocated) {
+        if (clipboard && !display.readonly && clipboard->sectorSize == display.sectorSize
+            && clipboard->fsType != FsType::Luks
+            && Layout::pasteRequiredBytes(display, *sel, *clipboard) <= sel->byteLength())
+            a.paste = true;
         return a;
+    }
 
     if (sel->type == PartitionType::Extended) {
         a.remove = !display.readonly && sel->logicals.size() == 1
                 && sel->logicals.front().type == PartitionType::Unallocated;
+        a.resize = !display.readonly;
         return a;
     }
 
     if ((sel->type == PartitionType::Primary || sel->type == PartitionType::Logical
          || sel->type == PartitionType::Unpartitioned)
         && sel->fsType != FsType::Unallocated) {
-        a.format = !display.isImageFile && !display.readonly;
+        a.format = fsTools && !display.readonly;
         a.remove = sel->type != PartitionType::Unpartitioned && !display.readonly;
+        if (!display.readonly && inTable && (isNew || (fsTools && fs.canResize())))
+            a.resize = true;
+        if (real && fsTools && fs.copy != FsMethod::None)
+            a.copy = true;
+        if (real && fsTools && fs.writeLabel)
+            a.label = true;
+        if (real && fsTools && fs.writeUuid)
+            a.uuid = true;
+        if (real && fsTools && fs.check)
+            a.check = true;
+        if (clipboard && real && fsTools && !display.readonly && clipboard->sectorSize == display.sectorSize
+            && clipboard->byteLength() <= sel->byteLength()
+            && !(clipboard->devicePath == sel->devicePath && *clipboard == *sel))
+            a.paste = true;
     }
     return a;
 }

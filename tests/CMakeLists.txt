@@ -10,3 +10,8 @@ add_test(NAME model COMMAND tst_model)
 add_executable(tst_disk tst_disk.cpp)
 target_link_libraries(tst_disk PRIVATE qtparted-core Qt6::Test)
 add_test(NAME disk COMMAND tst_disk)
+
+# Resize, move, copy, check, label and UUID with data integrity checks (root, loop devices).
+add_executable(tst_f2 tst_f2.cpp)
+target_link_libraries(tst_f2 PRIVATE qtparted-core Qt6::Test)
+add_test(NAME f2 COMMAND tst_f2)

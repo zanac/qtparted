@@ -22,6 +22,8 @@ if(QTPARTED_BUILD_GUI)
 endif()
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(PARTED REQUIRED IMPORTED_TARGET libparted>=3.1)
+# FAT and HFS(+) resizing (part of parted since 3.1)
+pkg_check_modules(PARTED_FS_RESIZE REQUIRED IMPORTED_TARGET libparted-fs-resize)
 pkg_check_modules(BLKID REQUIRED IMPORTED_TARGET blkid)
 
 # The program binary goes to libexec; `qtparted` in bin is the launcher script that

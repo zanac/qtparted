@@ -318,6 +318,14 @@ FileSystem::FileSystem(Definition def)
 {
 }
 
+static bool hasAll(const QStringList &programs)
+{
+    for (const QString &p : programs)
+        if (!Tools::has(p))
+            return false;
+    return true;
+}
+
 void FileSystem::detect()
 {
     m_support = FsSupport();
@@ -327,6 +335,92 @@ void FileSystem::detect()
     for (const QString &p : m_def.usagePrograms)
         usage = usage && Tools::has(p);
     m_support.readUsage = usage;
+
+    const bool checkOk = !m_def.checkProgram.isEmpty() && Tools::has(m_def.checkProgram);
+    m_support.check = checkOk;
+    const bool resizeAllowed = !m_def.requireCheckForResize || checkOk;
+
+    if (m_def.recreateResize && m_support.create) {
+        m_support.grow = m_support.shrink = FsMethod::Recreate;
+    } else {
+        if (m_def.libpartedGrow)
+            m_support.grow = FsMethod::Libparted;
+        else if (m_def.resize && resizeAllowed && !m_def.growPrograms.isEmpty() && hasAll(m_def.growPrograms))
+            m_support.grow = FsMethod::External;
+        if (m_def.libpartedShrink)
+            m_support.shrink = FsMethod::Libparted;
+        else if (m_def.resize && resizeAllowed && !m_def.shrinkPrograms.isEmpty() && hasAll(m_def.shrinkPrograms)
+                 && (!m_def.shrinkNeedsUsage || m_support.readUsage))
+            m_support.shrink = FsMethod::External;
+    }
+    if (m_def.onlineGrow && m_support.grow == FsMethod::External)
+        m_support.onlineGrow = FsMethod::External;
+    if (m_def.onlineShrink && m_support.shrink == FsMethod::External)
+        m_support.onlineShrink = FsMethod::External;
+
+    const bool moveAllowed = !m_def.moveNeedsCheck || checkOk;
+    if (m_def.recreateResize) {
+        if (m_support.create)
+            m_support.move = m_support.copy = FsMethod::Recreate;
+    } else {
+        if (m_def.movable && moveAllowed)
+            m_support.move = FsMethod::Block;
+        if (m_def.copyable && moveAllowed)
+            m_support.copy = FsMethod::Block;
+    }
+
+    m_support.writeLabel = bool(m_def.writeLabel) && !m_def.labelPrograms.isEmpty() && hasAll(m_def.labelPrograms);
+    m_support.onlineWriteLabel = m_support.writeLabel && m_def.onlineLabel;
+    m_support.writeUuid = bool(m_def.writeUuid) && !m_def.uuidPrograms.isEmpty() && hasAll(m_def.uuidPrograms);
+}
+
+QStringList FileSystem::allPrograms() const
+{
+    QStringList all;
+    if (!m_def.mkfsProgram.isEmpty())
+        all << m_def.mkfsProgram;
+    all += m_def.usagePrograms;
+    all += m_def.growPrograms;
+    all += m_def.shrinkPrograms;
+    if (!m_def.checkProgram.isEmpty())
+        all << m_def.checkProgram;
+    all += m_def.labelPrograms;
+    all += m_def.uuidPrograms;
+    all.removeDuplicates();
+    return all;
+}
+
+bool FileSystem::resize(const Partition &partition, OperationDetail &detail, bool fill) const
+{
+    if (!m_def.resize)
+        return false;
+    return m_def.resize(partition, detail, fill);
+}
+
+bool FileSystem::check(const Partition &partition, OperationDetail &detail) const
+{
+    if (!m_support.check || !m_def.checkArgs)
+        return false;
+    const CommandResult r = runCommand(m_def.checkProgram, m_def.checkArgs(partition), &detail);
+    const bool ok = r.started && m_def.checkSuccessCodes.contains(r.exitCode);
+    // The command detail shows the raw exit status; repairs (e2fsck exit 1) are fine.
+    if (ok && r.exitCode != 0)
+        detail.lastChild().setStatus(OperationDetail::Status::Success);
+    return ok;
+}
+
+bool FileSystem::writeLabel(const Partition &partition, OperationDetail &detail) const
+{
+    if (!m_support.writeLabel)
+        return false;
+    Partition p = partition;
+    p.fsLabel = sanitizeLabel(p.fsLabel);
+    return m_def.writeLabel(p, detail);
+}
+
+bool FileSystem::writeUuid(const Partition &partition, OperationDetail &detail) const
+{
+    return m_support.writeUuid && m_def.writeUuid(partition, detail);
 }
 
 QString FileSystem::sanitizeLabel(const QString &label) const
@@ -637,6 +731,7 @@ FileSystemRegistry::FileSystemRegistry()
         add(std::move(d));
     }
 
+    addResizeAndMaintenance();
     detect();
 }
 
@@ -645,6 +740,12 @@ void FileSystemRegistry::detect()
     Tools::clearCache();
     for (auto &[type, fs] : m_fs)
         fs->detect();
+}
+
+FsSupport FileSystemRegistry::support(FsType type) const
+{
+    const FileSystem *fs = get(type);
+    return fs ? fs->support() : FsSupport();
 }
 
 const FileSystem *FileSystemRegistry::get(FsType type) const
