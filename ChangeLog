@@ -31,6 +31,7 @@ ChangeLog for QtParted:
   - Mount on fstab mount points, unmount, swapon/swapoff, LVM Volume Group
     activation, applied immediately like in GParted
   - Usage of reiserfs and reiser4; mounted ext2/3/4 report their full size
+  - German, French, Portuguese and Brazilian Portuguese translations
   - Italian translation; English plural forms; translations built into the
     program, new languages picked up from translations/*.ts
   - User manual (doc/manual) shown in Help > Contents (F1)

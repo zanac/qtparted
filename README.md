@@ -299,7 +299,8 @@ The [user manual](doc/manual/manual.md) is built into the program too:
 
 <img src="doc/screenshots/italian.png" alt="QtParted in Italian" width="60%">
 
-QtParted is translated into **Italian**; the plural forms of the English texts
+QtParted is translated into **Italian, German, French, Portuguese and Brazilian
+Portuguese**; the plural forms of the English texts
 come from an English translation file. The interface follows `LANG` /
 `LANGUAGE`, which the launcher passes to the program.
 
