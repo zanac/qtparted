@@ -146,7 +146,8 @@ bool open(const Partition &p, const QByteArray &passphrase, QString &error)
 
 bool close(const Partition &p, QString &error)
 {
-    const LuksMapping m = p.luks.isOpen() ? p.luks : mapping(p.path);
+    loadCache();
+    const LuksMapping m = mapping(p.path);
     if (!m.isOpen()) {
         error = tr("%1 has no open encryption mapping").arg(p.path);
         return false;
@@ -216,7 +217,7 @@ void wipe(Secret &s)
     if (!s.data)
         return;
     explicit_bzero(s.data, s.size);
-    munlock(s.data, s.size);
+    // No munlock: the page may still hold another passphrase.
     std::free(s.data);
     s.data = nullptr;
     s.size = 0;

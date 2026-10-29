@@ -102,7 +102,10 @@ the current operation and save the whole log as HTML.
   "[Encrypted] ext4", with that file system's label, usage and mount points. You
   can then **resize** it (encryption and file system together), and **check**,
   **label**, **change the UUID** of or **format** the file system inside it. You
-  can also **copy** its decrypted contents to a new partition.
+  can also **copy** its decrypted contents over an existing partition (with a
+  warning that they will be stored unencrypted). Like GParted, QtParted does
+  not paste encrypted content into a new partition, since that partition
+  could not be encrypted yet.
 - A closed LUKS partition can be moved or grown. The encrypted area grows to fill
   the partition the next time it is opened.
 - When the volume key is kept in the kernel keyring (the default for LUKS2), a

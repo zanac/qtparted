@@ -8,6 +8,8 @@
  * (at your option) any later version.
  */
 #include "SystemInfo.h"
+#include <linux/fs.h>
+#include <sys/ioctl.h>
 
 #include "Command.h"
 
@@ -54,6 +56,17 @@ static QString unescapeMountField(const QString &s)
         out += s[i];
     }
     return out;
+}
+
+qint64 SystemInfo::logicalSectorSize(const QString &path)
+{
+    const int fd = ::open(path.toLocal8Bit().constData(), O_RDONLY | O_CLOEXEC);
+    if (fd < 0)
+        return 0;
+    int size = 0;
+    const int r = ::ioctl(fd, BLKSSZGET, &size);
+    ::close(fd);
+    return r == 0 && size > 0 ? qint64(size) : 0;
 }
 
 quint64 SystemInfo::devNumber(const QString &path)

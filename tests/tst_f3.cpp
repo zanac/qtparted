@@ -126,6 +126,7 @@ private Q_SLOTS:
     void openLuksCheckLabelUuidFormat();
     void closedLuksMoveAndGrow();
     void copyOpenLuksContent();
+    void resizeThenLabelInOneBatch();
     void mountUnmountAndSwap();
 
 private:
@@ -540,6 +541,10 @@ void TestF3::copyOpenLuksContent()
 {
     if (!attachLuks(768, 201))
         QSKIP("needs root, losetup, parted and cryptsetup");
+    QVERIFY(run(QStringLiteral("parted"), { QStringLiteral("-s"), m_loop, QStringLiteral("mkpart"), QStringLiteral("plain"),
+                                            QStringLiteral("301MiB"), QStringLiteral("601MiB") }));
+    Parted::settle();
+    QVERIFY(run(QStringLiteral("mkfs.ext4"), { QStringLiteral("-q"), part(2) }));
     QVERIFY(openLuks());
     const QString mapper = QStringLiteral("/dev/mapper/") + Luks::mappingNameFor(part(1));
     QVERIFY(run(QStringLiteral("mkfs.ext4"), { QStringLiteral("-q"), mapper }));
@@ -548,28 +553,48 @@ void TestF3::copyOpenLuksContent()
     s.devices = { scanOne(m_loop) };
     const Partition src = *byNumber(s.devices[0], 1);
     const Device disp = s.displayDevice(0);
-    const Partition *un = nullptr;
-    for (const Partition &p : disp.partitions)
-        if (p.type == PartitionType::Unallocated && p.start > src.end)
-            un = &p;
-    QVERIFY(un);
     QVERIFY(Session::allowedActions(disp, &src, 0).copy);
-    QVERIFY(Session::allowedActions(disp, un, 0, &src).paste);
-    const Partition content = src.filesystem();
-    const Layout::SpaceEdit space = Layout::pasteSpace(*un, content);
-    const Partition np = Layout::makePastedPartition(disp, *un, content, space, space.beforeMiB, 250,
-                                                     space.totalMiB - space.beforeMiB - 250, Alignment::MiB,
-                                                     s.nextNewNumber());
-    QCOMPARE(np.fsType, FsType::Ext4);
-    QVERIFY(!np.encrypted);
-    QVERIFY(s.addOperation(std::make_unique<OperationCopy>(s.devices[0], *un, np, src)));
+    // Like GParted, encrypted content is not pasted into new partitions...
+    for (const Partition &p : disp.partitions)
+        if (p.type == PartitionType::Unallocated)
+            QVERIFY(!Session::allowedActions(disp, &p, 0, &src).paste);
+    // ...but it can be pasted over an existing partition (decrypted).
+    const Partition dst = *byNumber(disp, 2);
+    QVERIFY(Session::allowedActions(disp, &dst, 0, &src).paste);
+    QVERIFY(s.addOperation(std::make_unique<OperationCopy>(s.devices[0], dst,
+                                                           Layout::pasteIntoExisting(dst, src.filesystem()), src)));
     QVERIFY(applyAll(s));
     s.devices = { scanOne(m_loop) };
     const Partition *copy = byNumber(s.devices[0], 2);
     QVERIFY(copy);
     QCOMPARE(copy->fsType, FsType::Ext4);  // a plain, decrypted copy
+    QVERIFY(copy->sectorsUnallocated < Sector(4 * MiB / 512));  // grown to fill
     QCOMPARE(readData(part(2)), hash);
     QVERIFY(byNumber(s.devices[0], 1)->isOpenLuks());  // the source is untouched
+}
+
+void TestF3::resizeThenLabelInOneBatch()
+{
+    // Regression: after a queued resize of open LUKS the next operation on it must
+    // expect the new mapping size.
+    if (!attachLuks(512, 301))
+        QSKIP("needs root, losetup, parted and cryptsetup");
+    QVERIFY(openLuks());
+    const QString mapper = QStringLiteral("/dev/mapper/") + Luks::mappingNameFor(part(1));
+    QVERIFY(run(QStringLiteral("mkfs.ext4"), { QStringLiteral("-q"), mapper }));
+    const QByteArray hash = writeData(mapper, 20);
+    Session s;
+    s.devices = { scanOne(m_loop) };
+    QVERIFY(queueResize(s, 1, 0, 200));
+    QVERIFY(s.addOperation(std::make_unique<OperationLabel>(s.devices[0], *byNumber(s.displayDevice(0), 1),
+                                                            QStringLiteral("after"))));
+    QVERIFY(s.addOperation(std::make_unique<OperationCheck>(s.devices[0], *byNumber(s.displayDevice(0), 1))));
+    QCOMPARE(int(s.operations.size()), 3);
+    QVERIFY(applyAll(s));
+    s.devices = { scanOne(m_loop) };
+    QCOMPARE(byNumber(s.devices[0], 1)->length(), Sector(200 * MiB / 512));
+    QCOMPARE(byNumber(s.devices[0], 1)->filesystem().fsLabel, QStringLiteral("after"));
+    QCOMPARE(readData(mapper), hash);
 }
 
 void TestF3::mountUnmountAndSwap()

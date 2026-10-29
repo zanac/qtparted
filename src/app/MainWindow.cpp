@@ -55,6 +55,7 @@
 #include <QTreeView>
 #include <QVBoxLayout>
 
+#include <cstring>
 #include <unistd.h>
 
 namespace QtParted {
@@ -970,6 +971,9 @@ void MainWindow::actionPaste()
     QMessageBox box(QMessageBox::Warning, tr("You have pasted into an existing partition"),
                     tr("The data in %1 will be lost when the operation is applied.").arg(destination.path),
                     QMessageBox::Cancel, this);
+    if (source.isOpenLuks())
+        box.setInformativeText(tr("The content of the encrypted partition %1 will be stored unencrypted in %2.")
+                                   .arg(source.path, destination.path));
     QPushButton *ok = box.addButton(tr("&Paste"), QMessageBox::DestructiveRole);
     box.setDefaultButton(QMessageBox::Cancel);
     box.exec();
@@ -1016,6 +1020,24 @@ void MainWindow::actionNewUuid()
 
 // --- busy state: encryption, mount, swap, Volume Groups ----------------------------------
 
+const Partition *MainWindow::scannedPartition(const Partition &shown)
+{
+    if (m_current >= 0) {
+        for (const Partition &p : m_session.devices[size_t(m_current)].partitions) {
+            if (p.path == shown.path && p.start == shown.start && p.end == shown.end && p.type == shown.type)
+                return &p;
+            for (const Partition &l : p.logicals)
+                if (l.path == shown.path && l.start == shown.start && l.end == shown.end && l.type == shown.type)
+                    return &l;
+        }
+    }
+    QMessageBox::information(this, QStringLiteral("QtParted"),
+                             tr("%1 is shown as it will be after the pending operations, which renumber or move it. "
+                                "Apply or undo them before using this action.")
+                                 .arg(shown.path));
+    return nullptr;
+}
+
 bool MainWindow::toggleAllowed(const Partition &p, const QString &disallowed)
 {
     const int n = m_session.pendingCountFor(p);
@@ -1059,8 +1081,11 @@ void MainWindow::showToggleFailure(const QString &summary, const QString &error)
 
 void MainWindow::actionToggleCrypt()
 {
-    const Partition *sel = selectedPartition();
-    if (!sel || sel->fsType != FsType::Luks)
+    const Partition *shown = selectedPartition();
+    if (!shown || shown->fsType != FsType::Luks)
+        return;
+    const Partition *sel = scannedPartition(*shown);
+    if (!sel)
         return;
     const Partition p = *sel;
     QString error;
@@ -1078,20 +1103,23 @@ void MainWindow::actionToggleCrypt()
                              "for the partition.")))
         return;
     // A passphrase that opened it before in this session is tried first.
-    const QByteArray stored = PasswordStore::lookup(p.uuid);
+    QByteArray stored = PasswordStore::lookup(p.uuid);
     bool opened = !stored.isEmpty()
                && runBlocking(tr("Opening encryption on %1").arg(p.path),
-                              [p, stored](QString &e) { return Luks::open(p, stored, e); }, error);
+                              [&p, &stored](QString &e) { return Luks::open(p, stored, e); }, error);
+    explicit_bzero(stored.data(), size_t(stored.size()));
     if (!opened) {
         DialogPassword dialog(tr("Enter LUKS passphrase to open %1").arg(p.path), p.path, this);
         while (!opened) {
             if (dialog.exec() != QDialog::Accepted)
                 return;  // cancelled: nothing changed, no refresh needed
-            const QByteArray pw = dialog.password();
+            QByteArray pw = dialog.password();
             opened = runBlocking(tr("Opening encryption on %1").arg(p.path),
-                                 [p, pw](QString &e) { return Luks::open(p, pw, e); }, error);
+                                 [&p, &pw](QString &e) { return Luks::open(p, pw, e); }, error);
+            const bool empty = pw.isEmpty();
+            explicit_bzero(pw.data(), size_t(pw.size()));
             if (!opened)
-                dialog.setError(pw.isEmpty() ? QString() : tr("Failed to open LUKS encryption"));
+                dialog.setError(empty ? QString() : tr("Failed to open LUKS encryption"));
         }
         dialog.clearPassword();
     }
@@ -1108,16 +1136,18 @@ bool MainWindow::passphraseForResize(const Partition &p)
     while (true) {
         if (dialog.exec() != QDialog::Accepted)
             return false;
-        const QByteArray pw = dialog.password();
+        QByteArray pw = dialog.password();
         if (pw.isEmpty()) {
             dialog.setError(QString());
             continue;
         }
         QString ignored;
         const bool ok = runBlocking(tr("Testing the passphrase of %1").arg(p.path),
-                                    [p, pw](QString &) { return Luks::testPassphrase(p, pw); }, ignored);
-        if (ok) {
+                                    [&p, &pw](QString &) { return Luks::testPassphrase(p, pw); }, ignored);
+        if (ok)
             PasswordStore::store(p.uuid, pw);
+        explicit_bzero(pw.data(), size_t(pw.size()));
+        if (ok) {
             dialog.clearPassword();
             return true;
         }
@@ -1127,7 +1157,10 @@ bool MainWindow::passphraseForResize(const Partition &p)
 
 void MainWindow::actionToggleBusy()
 {
-    const Partition *sel = selectedPartition();
+    const Partition *shown = selectedPartition();
+    if (!shown)
+        return;
+    const Partition *sel = scannedPartition(*shown);
     if (!sel)
         return;
     const AllowedActions a = Session::allowedActions(m_display, sel, m_session.pendingCount(m_display.path));
@@ -1180,7 +1213,10 @@ void MainWindow::actionToggleBusy()
 
 void MainWindow::actionMountOn(const QString &mountPoint)
 {
-    const Partition *sel = selectedPartition();
+    const Partition *shown = selectedPartition();
+    if (!shown)
+        return;
+    const Partition *sel = scannedPartition(*shown);
     if (!sel)
         return;
     if (!toggleAllowed(*sel, tr("The mount action cannot be performed when an operation is pending for the partition.")))

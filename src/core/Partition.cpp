@@ -114,6 +114,8 @@ void Partition::luksFollowResize()
     if (fsType != FsType::Luks)
         return;
     setUsage(length(), 0);
+    if (luks.isOpen())
+        luks.length = (length() - luksHeader) * sectorSize;  // the mapping fills the partition
     if (encrypted) {
         const Sector mapping = length() - luksHeader;
         encrypted->end = encrypted->start + mapping - 1;

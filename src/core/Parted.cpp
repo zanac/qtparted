@@ -251,7 +251,7 @@ void fillPartitionDetails(Partition &p, const Device &device, const SystemInfo &
         }
         p.busy = true;
         p.luks = m;
-        p.luksHeader = m.offset / p.sectorSize;
+        p.luksHeader = (m.offset + p.sectorSize - 1) / p.sectorSize;  // never smaller than the header
         p.setUsage((m.offset + m.length) / p.sectorSize, 0);
         Partition in;
         in.devicePath = m.path();
@@ -262,6 +262,15 @@ void fillPartitionDetails(Partition &p, const Device &device, const SystemInfo &
         in.sectorSize = p.sectorSize;
         in.start = 0;
         in.end = m.length / p.sectorSize - 1;
+        const ByteValue innerSector = SystemInfo::logicalSectorSize(in.path);
+        if (innerSector > 0 && innerSector != p.sectorSize) {
+            // LUKS2 with larger encryption sectors: the mapping counts in other units.
+            // Only closing it is offered (no encrypted partition is attached).
+            p.messages.append(tr("The encryption mapping %1 uses %2 byte sectors, the partition %3 byte sectors: "
+                                 "the file system inside it can not be changed by QtParted.")
+                                  .arg(in.path).arg(innerSector).arg(p.sectorSize));
+            return;
+        }
         if (QFileInfo::exists(in.path)) {
             fillPartitionDetails(in, device, sys);
         } else {

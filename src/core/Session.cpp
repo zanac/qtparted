@@ -137,8 +137,10 @@ int Session::pendingCountFor(const Partition &p) const
 {
     int n = 0;
     for (const auto &op : operations)
-        if (op->device().path == p.devicePath
-            && (op->original().path == p.path || op->partitionNew().path == p.path))
+        if ((op->device().path == p.devicePath
+             && (op->original().path == p.path || op->partitionNew().path == p.path))
+            || (op->type() == OperationType::Copy
+                && static_cast<const OperationCopy &>(*op).copied().path == p.path))
             ++n;
     return n;
 }
@@ -228,9 +230,10 @@ AllowedActions Session::allowedActions(const Device &display, const Partition *s
     if (sel->fsType == FsType::Unallocated)
         a.create = true;
     if (sel->type == PartitionType::Unallocated) {
-        // Encrypted content can't be pasted into a plain partition (GParted).
+        // Encrypted content isn't pasted into new partitions, which can't be encrypted
+        // yet (GParted).
         if (clipboard && !display.readonly && clipboard->sectorSize == display.sectorSize
-            && clipboard->filesystem().fsType != FsType::Luks
+            && clipboard->fsType != FsType::Luks
             && Layout::pasteRequiredBytes(display, *sel, clipboard->filesystem()) <= sel->byteLength())
             a.paste = true;
         return a;

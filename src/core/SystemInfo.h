@@ -51,7 +51,9 @@ public:
     static QString serialNumber(const QString &devPath);
     static bool isRegularFile(const QString &path);
 
-    static quint64 devNumber(const QString &path);  // st_rdev of a block device, 0 otherwise
+    static quint64 devNumber(const QString &path);
+    // Logical sector size of a block device (BLKSSZGET), 0 when unknown.
+    static qint64 logicalSectorSize(const QString &path);  // st_rdev of a block device, 0 otherwise
 
 private:
     struct Mount { QString mountPoint; bool readonly = false; };

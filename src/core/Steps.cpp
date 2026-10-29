@@ -296,6 +296,17 @@ bool maximizeEncryption(const Partition &p, OperationDetail &detail)
         od.setStatus(OperationDetail::Status::Warning);
         return true;
     }
+    // A mapping larger than the partition (changed outside QtParted) would be shrunk
+    // below its file system by a "fill" resize.
+    Luks::loadCache();
+    const LuksMapping m = Luks::mapping(p.path);
+    if (m.isOpen() && m.offset + m.length > p.byteLength()) {
+        od.addChild(tr("the encryption mapping (%1) is larger than the partition (%2): refresh the devices")
+                        .arg(formatBytes(m.offset + m.length), formatBytes(p.byteLength())),
+                    OperationDetail::Status::Error, OperationDetail::Font::Italic);
+        od.setStatus(OperationDetail::Status::Error);
+        return false;
+    }
     const bool ok = Luks::resize(p, true, od);
     od.setSuccessAndCaptureErrors(ok);
     return ok;
@@ -306,6 +317,21 @@ bool shrinkEncryption(const Partition &o, const Partition &n, OperationDetail &d
     if (!o.isOpenLuks())
         return bug(detail, tr("partition does not contain open LUKS encryption for a shrink encryption only step"));
     OperationDetail &od = detail.addChild(tr("shrink encryption volume"));
+    // The new mapping must still hold the (already shrunk) file system and be smaller
+    // than the current one.
+    Luks::loadCache();
+    const LuksMapping m = Luks::mapping(o.path);
+    const ByteValue newMapping = (n.byteLength() - m.offset) / 512 * 512;
+    const Partition &f = n.filesystem();
+    const ByteValue fsBytes = f.usageKnown() ? (f.sectorsUsed + f.sectorsUnused) * f.sectorSize : f.byteLength();
+    if (!m.isOpen() || newMapping < fsBytes || newMapping >= m.length) {
+        od.addChild(tr("the new encryption mapping size (%1) does not fit the file system (%2) or is not smaller "
+                       "than the current one (%3)")
+                        .arg(formatBytes(newMapping), formatBytes(fsBytes), formatBytes(m.length)),
+                    OperationDetail::Status::Error, OperationDetail::Font::Italic);
+        od.setStatus(OperationDetail::Status::Error);
+        return false;
+    }
     const bool ok = Luks::resize(n, false, od);
     od.setSuccessAndCaptureErrors(ok);
     return ok;

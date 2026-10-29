@@ -447,7 +447,7 @@ void TestModel::pasteRulesAndGeometry()
     while (un && un->length() < kMiB * 100)
         un = un + 1;
     QVERIFY(un && un->type == PartitionType::Unallocated);
-    const Partition &src = disp.partitions[0];
+    const Partition src = disp.partitions[0];  // a copy: disp is reassigned below
 
     // Paste targets: free space and a large enough other partition, never itself.
     QVERIFY(Session::allowedActions(disp, un, 0, &src).paste);

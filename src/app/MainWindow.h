@@ -80,6 +80,10 @@ private:
     void actionMountOn(const QString &mountPoint);
     // Busy state changes: refused while operations are pending for the partition.
     bool toggleAllowed(const Partition &partition, const QString &disallowed);
+    // The scanned partition behind a displayed one, for actions applied right away: a
+    // pending delete renumbers the logical partitions shown after it.  Null (with a
+    // message) when the display doesn't match the disk.
+    const Partition *scannedPartition(const Partition &shown);
     // Run `action` in a worker thread with the UI blocked; returns its result.
     bool runBlocking(const QString &message, const std::function<bool(QString &)> &action, QString &error);
     void showToggleFailure(const QString &summary, const QString &error);
