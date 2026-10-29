@@ -1,3 +1,0 @@
-- Add btrfs support
-- Use mkfs.* tools instead of parted for filesystem creation
-- Remove remaining usage of Q3* compat classes

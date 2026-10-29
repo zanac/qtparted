@@ -1,73 +1,45 @@
-set(SRCS main.cpp
-	qp_dlgcreate.cpp
-	qp_dlgdevprop.cpp
-	qp_dlgformat.cpp
-	qp_dlgconfig.cpp
-	qp_dlgresize.cpp
-	qp_dlgprogress.cpp
-	qp_drivelist.cpp
-	qp_devlist.cpp
-	qp_libparted.cpp
-	qp_partlist.cpp
-	qp_actlist.cpp
-	qp_extended.cpp
-	qp_listchart.cpp
-	qp_partition.cpp
-	qp_partwidget.cpp
-	qp_diskview.cpp
-	qp_window.cpp
-	qp_combospin.cpp
-	qp_exttools.cpp
-	qp_listview.cpp
-	qp_settings.cpp
-	qp_common.cpp
-	qp_filesystem.cpp
-	qp_navview.cpp
-	qp_fswrap.cpp
-	qp_sizepart.cpp
-	qp_spinbox.cpp
-	qp_debug.cpp
-	statistics.cpp)
+# Core library: no GUI, only QtCore + libparted + libblkid.  Used by the
+# application and the tests.
+add_library(qtparted-core STATIC
+    core/Command.cpp
+    core/FileSystem.cpp
+    core/FsType.cpp
+    core/Layout.cpp
+    core/Operation.cpp
+    core/OperationDetail.cpp
+    core/Parted.cpp
+    core/Partition.cpp
+    core/Probe.cpp
+    core/Session.cpp
+    core/SystemInfo.cpp
+    core/Units.cpp
+    core/Worker.cpp
+)
+target_include_directories(qtparted-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/core)
+target_link_libraries(qtparted-core PUBLIC Qt6::Core PkgConfig::PARTED PkgConfig::BLKID)
 
-set(PRIVATE_HEADERS qtparted.h
-	qp_dlgcreate.h
-	qp_dlgdevprop.h
-	qp_dlgformat.h
-	qp_dlgconfig.h
-	qp_dlgresize.h
-	qp_dlgprogress.h
-	qp_drivelist.h
-	qp_devlist.h
-	qp_libparted.h
-	qp_partlist.h
-	qp_actlist.h
-	qp_extended.h
-	qp_listchart.h
-	qp_partition.h
-	qp_partwidget.h
-	qp_diskview.h
-	qp_window.h
-	qp_combospin.h
-	qp_exttools.h
-	qp_listview.h
-	qp_settings.h
-	qp_common.h
-	qp_filesystem.h
-	qp_navview.h
-	qp_fswrap.h
-	qp_sizepart.h
-	qp_spinbox.h
-	statistics.h)
+if(NOT QTPARTED_BUILD_GUI)
+    return()
+endif()
 
-set(UIS	qp_ui_create.ui
-	qp_ui_devprop.ui
-	qp_ui_format.ui
-	qp_ui_progress.ui
-	qp_ui_resize.ui)
+add_executable(qtparted
+    main.cpp
+    app/DialogApply.cpp
+    app/DialogCreateTable.cpp
+    app/DialogFlags.cpp
+    app/DialogFsSupport.cpp
+    app/DialogName.cpp
+    app/DialogNewPartition.cpp
+    app/DialogPartitionInfo.cpp
+    app/DiskMapWidget.cpp
+    app/MainWindow.cpp
+    app/PartitionResizer.cpp
+    app/PartitionTreeModel.cpp
+    app/UiHelpers.cpp
+    app/qtparted.qrc
+)
+set_target_properties(qtparted PROPERTIES AUTORCC ON)
+target_include_directories(qtparted PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/app)
+target_link_libraries(qtparted PRIVATE qtparted-core Qt6::Widgets)
 
-qt4_wrap_ui(UI_SRCS ${UIS})
-qt4_wrap_cpp(MOC_SRCS ${PRIVATE_HEADERS} ${UI_SRCS})
-
-add_executable(qtparted ${SRCS} ${MOC_SRCS})
-target_link_libraries(qtparted ${QT_QTMAIN_LIBRARY} ${QT_QTCORE_LIBRARY} ${QT_QTGUI_LIBRARY} ${QT_QT3SUPPORT_LIBRARY} parted)
-install(TARGETS qtparted DESTINATION bin)
+install(TARGETS qtparted RUNTIME DESTINATION ${QTPARTED_LIBEXECDIR})
