@@ -28,10 +28,6 @@
 
 namespace QtParted {
 
-static QString tr(const char *s)
-{
-    return QCoreApplication::translate("FileSystem", s);
-}
 
 QString randomUuid()
 {
@@ -49,18 +45,18 @@ bool withMountedFileSystem(const Partition &p, const QString &mountType, Operati
         for (const QString &mp : info.mountPoints(p.path))
             if (QDir(mp).exists())
                 return body(mp);
-        detail.addChild(tr("%1 is not mounted on a directory any more").arg(p.path), OperationDetail::Status::Error);
+        detail.addChild(QCoreApplication::translate("FileSystem", "%1 is not mounted on a directory any more").arg(p.path), OperationDetail::Status::Error);
         return false;
     }
 
     // Private temporary mount point (0700), like GParted's mk_temp_dir().
     QByteArray tmpl = QDir::tempPath().toLocal8Bit() + "/qtparted-XXXXXX";
     if (!::mkdtemp(tmpl.data())) {
-        detail.addChild(tr("Failed to create temporary directory"), OperationDetail::Status::Error);
+        detail.addChild(QCoreApplication::translate("FileSystem", "Failed to create temporary directory"), OperationDetail::Status::Error);
         return false;
     }
     const QString dir = QString::fromLocal8Bit(tmpl);
-    detail.addChild(tr("Created directory %1").arg(dir), OperationDetail::Status::None, OperationDetail::Font::Italic);
+    detail.addChild(QCoreApplication::translate("FileSystem", "Created directory %1").arg(dir), OperationDetail::Status::None, OperationDetail::Font::Italic);
 
     bool ok = runCommand(QStringLiteral("mount"), { QStringLiteral("-v"), QStringLiteral("-t"), mountType, p.path, dir },
                          &detail).ok();
@@ -69,7 +65,7 @@ bool withMountedFileSystem(const Partition &p, const QString &mountType, Operati
         ok = runCommand(QStringLiteral("umount"), { QStringLiteral("-v"), dir }, &detail).ok() && ok;
     }
     if (::rmdir(tmpl.constData()) == 0)
-        detail.addChild(tr("Removed directory %1").arg(dir), OperationDetail::Status::None, OperationDetail::Font::Italic);
+        detail.addChild(QCoreApplication::translate("FileSystem", "Removed directory %1").arg(dir), OperationDetail::Status::None, OperationDetail::Font::Italic);
     return ok;
 }
 
@@ -97,7 +93,7 @@ bool extResize(const Partition &p, OperationDetail &d, bool fill)
                                                  QRegularExpression::MultilineOption);
         const auto m = features.match(r.output);
         if (!m.hasMatch()) {
-            d.addChild(tr("Failed to determine whether the ext4 file system has the 64bit feature enabled"),
+            d.addChild(QCoreApplication::translate("FileSystem", "Failed to determine whether the ext4 file system has the 64bit feature enabled"),
                        OperationDetail::Status::Error);
             return false;
         }
@@ -117,12 +113,12 @@ bool ntfsResize(const Partition &p, OperationDetail &d, bool fill)
     QStringList args{ QStringLiteral("--force"), QStringLiteral("--force") };
     if (!fill)
         args << QStringLiteral("-s") << QString::number(p.byteLength());
-    OperationDetail &sim = d.addChild(tr("run simulation"));
+    OperationDetail &sim = d.addChild(QCoreApplication::translate("FileSystem", "run simulation"));
     bool ok = run(QStringLiteral("ntfsresize"), args + QStringList{ QStringLiteral("--no-action"), p.path }, sim);
     sim.setSuccessAndCaptureErrors(ok);
     if (!ok)
         return false;
-    OperationDetail &real = d.addChild(tr("real resize"));
+    OperationDetail &real = d.addChild(QCoreApplication::translate("FileSystem", "real resize"));
     ok = run(QStringLiteral("ntfsresize"), args + QStringList{ p.path }, real);
     real.setSuccessAndCaptureErrors(ok);
     return ok;
@@ -143,7 +139,7 @@ bool btrfsResize(const Partition &p, OperationDetail &d, bool fill)
 {
     const QString devid = btrfsDevid(p.path);
     if (devid.isEmpty()) {
-        d.addChild(tr("Failed to find devid for path %1").arg(p.path), OperationDetail::Status::Error);
+        d.addChild(QCoreApplication::translate("FileSystem", "Failed to find devid for path %1").arg(p.path), OperationDetail::Status::Error);
         return false;
     }
     return withMountedFileSystem(p, QStringLiteral("btrfs"), d, [&](const QString &mp) {

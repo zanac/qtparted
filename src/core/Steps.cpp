@@ -27,14 +27,10 @@ namespace Steps {
 
 namespace {
 
-QString tr(const char *s)
-{
-    return QCoreApplication::translate("Steps", s);
-}
 
 bool bug(OperationDetail &detail, const QString &what)
 {
-    detail.addChild(tr("QtParted bug") + QStringLiteral(": ") + what, OperationDetail::Status::Error,
+    detail.addChild(QCoreApplication::translate("Steps", "QtParted bug") + QStringLiteral(": ") + what, OperationDetail::Status::Error,
                     OperationDetail::Font::Italic);
     return false;
 }
@@ -71,8 +67,8 @@ bool resizeFileSystem(const Partition &o, const Partition &n, OperationDetail &d
 bool shrinkFileSystem(const Partition &o, const Partition &n, OperationDetail &detail)
 {
     if (n.length() >= o.length())
-        return bug(detail, tr("the new partition size is larger or the same for a shrink only step"));
-    OperationDetail &od = detail.addChild(tr("shrink file system"));
+        return bug(detail, QCoreApplication::translate("Steps", "the new partition size is larger or the same for a shrink only step"));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Steps", "shrink file system"));
     const bool ok = resizeFileSystem(o, n, od);
     od.setSuccessAndCaptureErrors(ok);
     return ok;
@@ -100,7 +96,7 @@ void rollbackMoveFileSystem(const Partition &src, const Partition &dst, Operatio
         if (tmpSrc.start > tmpSrc.end)
             return;
     }
-    OperationDetail &od = detail.addChild(tr("rollback failed file system move"));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Steps", "rollback failed file system move"));
     ByteValue ignored = 0;
     const bool ok = Parted::copyBlocks(dst.devicePath, src.devicePath, tmpDst.start, tmpSrc.start,
                                        tmpSrc.byteLength(), od, ignored);
@@ -109,11 +105,11 @@ void rollbackMoveFileSystem(const Partition &src, const Partition &dst, Operatio
 
 bool moveFileSystem(const Partition &o, const Partition &n, OperationDetail &detail)
 {
-    OperationDetail &od = detail.addChild(n.start < o.start ? tr("move file system to the left")
-                                          : n.start > o.start ? tr("move file system to the right")
-                                                              : tr("move file system"));
+    OperationDetail &od = detail.addChild(n.start < o.start ? QCoreApplication::translate("Steps", "move file system to the left")
+                                          : n.start > o.start ? QCoreApplication::translate("Steps", "move file system to the right")
+                                                              : QCoreApplication::translate("Steps", "move file system"));
     if (n.start == o.start) {
-        od.addChild(tr("new and old file system have the same position.  Hence skipping this operation"),
+        od.addChild(QCoreApplication::translate("Steps", "new and old file system have the same position.  Hence skipping this operation"),
                     OperationDetail::Status::None, OperationDetail::Font::Italic);
         od.setSuccessAndCaptureErrors(true);
         return true;
@@ -133,7 +129,7 @@ bool moveFileSystem(const Partition &o, const Partition &n, OperationDetail &det
         break;
     }
     default:
-        od.addChild(tr("moving is not available for this file system"), OperationDetail::Status::Error);
+        od.addChild(QCoreApplication::translate("Steps", "moving is not available for this file system"), OperationDetail::Status::Error);
         break;
     }
     od.setSuccessAndCaptureErrors(ok);
@@ -143,7 +139,7 @@ bool moveFileSystem(const Partition &o, const Partition &n, OperationDetail &det
 bool move(const Partition &o, Partition &n, OperationDetail &detail)
 {
     if (o.length() != n.length())
-        return bug(detail, tr("size of the partition is changing for a move only step"));
+        return bug(detail, QCoreApplication::translate("Steps", "size of the partition is changing for a move only step"));
     if (!checkRepair(o, detail))
         return false;
 
@@ -158,7 +154,7 @@ bool move(const Partition &o, Partition &n, OperationDetail &detail)
     bool ok = false;
     if (Parted::resizeMovePartition(o, all, detail, true)) {
         if (!moveFileSystem(o, n, detail)) {
-            OperationDetail &rb = detail.addChild(tr("rollback last change to the partition"));
+            OperationDetail &rb = detail.addChild(QCoreApplication::translate("Steps", "rollback last change to the partition"));
             Partition restore = o;
             restore.alignment = Alignment::None;
             if (Parted::resizeMovePartition(all, restore, rb, false)) {
@@ -183,7 +179,7 @@ bool move(const Partition &o, Partition &n, OperationDetail &detail)
 bool resize(const Partition &o, Partition &n, OperationDetail &detail)
 {
     if (o.start != n.start)
-        return bug(detail, tr("start of the partition is changing for a resize only step"));
+        return bug(detail, QCoreApplication::translate("Steps", "start of the partition is changing for a resize only step"));
     if (n.fsType == FsType::Luks)
         return resizeEncryption(o, n, detail);
     if (n.fsType == FsType::LinuxSwap)
@@ -199,7 +195,7 @@ bool resize(const Partition &o, Partition &n, OperationDetail &detail)
 
 bool copyFileSystem(const Partition &src, const Partition &dst, OperationDetail &detail)
 {
-    OperationDetail &od = detail.addChild(tr("copy file system from %1 to %2").arg(src.path, dst.path));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Steps", "copy file system from %1 to %2").arg(src.path, dst.path));
     const FileSystem *fs = fsOf(src);
     bool ok = false;
     switch (fs ? fs->support().copy : FsMethod::None) {
@@ -212,7 +208,7 @@ bool copyFileSystem(const Partition &src, const Partition &dst, OperationDetail 
         break;
     }
     default:
-        od.addChild(tr("copying is not available for this file system"), OperationDetail::Status::Error);
+        od.addChild(QCoreApplication::translate("Steps", "copying is not available for this file system"), OperationDetail::Status::Error);
         break;
     }
     od.setSuccessAndCaptureErrors(ok);
@@ -243,10 +239,10 @@ bool checkRepair(const Partition &p, OperationDetail &detail)
     if (p.busy)
         return true;  // checking an online file system is a successful non-operation
     OperationDetail &od = detail.addChild(
-        tr("check file system on %1 for errors and (if possible) fix them").arg(p.path));
+        QCoreApplication::translate("Steps", "check file system on %1 for errors and (if possible) fix them").arg(p.path));
     const FileSystem *fs = fsOf(p);
     if (!fs || !fs->support().check) {
-        od.addChild(tr("checking is not available for this file system"), OperationDetail::Status::None,
+        od.addChild(QCoreApplication::translate("Steps", "checking is not available for this file system"), OperationDetail::Status::None,
                     OperationDetail::Font::Italic);
         od.setStatus(OperationDetail::Status::Warning);
         return true;
@@ -258,10 +254,10 @@ bool checkRepair(const Partition &p, OperationDetail &detail)
 
 bool maximizeFileSystem(const Partition &p, OperationDetail &detail)
 {
-    OperationDetail &od = detail.addChild(tr("grow file system to fill the partition"));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Steps", "grow file system to fill the partition"));
     const FsSupport s = FileSystemRegistry::instance().support(p.fsType);
     if ((p.busy ? s.onlineGrow : s.grow) == FsMethod::None) {
-        od.addChild(tr("growing is not available for this file system"), OperationDetail::Status::None,
+        od.addChild(QCoreApplication::translate("Steps", "growing is not available for this file system"), OperationDetail::Status::None,
                     OperationDetail::Font::Italic);
         od.setStatus(OperationDetail::Status::Warning);
         return true;
@@ -274,10 +270,10 @@ bool maximizeFileSystem(const Partition &p, OperationDetail &detail)
 bool recreateSwap(const Partition &p, OperationDetail &detail)
 {
     if (p.fsType != FsType::LinuxSwap)
-        return bug(detail, tr("not a linux-swap file system for a recreate linux-swap only step"));
+        return bug(detail, QCoreApplication::translate("Steps", "not a linux-swap file system for a recreate linux-swap only step"));
     if (!Parted::eraseSignatures(p, detail))
         return false;
-    OperationDetail &od = detail.addChild(tr("recreate %1 file system").arg(fsName(FsType::LinuxSwap)));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Steps", "recreate %1 file system").arg(fsName(FsType::LinuxSwap)));
     const FileSystem *fs = fsOf(p);
     const bool ok = fs && fs->resize(p, od, true);
     od.setSuccessAndCaptureErrors(ok);
@@ -287,11 +283,11 @@ bool recreateSwap(const Partition &p, OperationDetail &detail)
 bool maximizeEncryption(const Partition &p, OperationDetail &detail)
 {
     if (p.fsType != FsType::Luks)
-        return bug(detail, tr("partition does not contain LUKS encryption for a maximize encryption only step"));
-    OperationDetail &od = detail.addChild(tr("grow encryption volume to fill the partition"));
+        return bug(detail, QCoreApplication::translate("Steps", "partition does not contain LUKS encryption for a maximize encryption only step"));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Steps", "grow encryption volume to fill the partition"));
     const FsSupport s = FileSystemRegistry::instance().support(FsType::Luks);
     if ((p.busy ? s.onlineGrow : s.grow) == FsMethod::None) {
-        od.addChild(tr("growing is not available for this encryption volume"), OperationDetail::Status::None,
+        od.addChild(QCoreApplication::translate("Steps", "growing is not available for this encryption volume"), OperationDetail::Status::None,
                     OperationDetail::Font::Italic);
         od.setStatus(OperationDetail::Status::Warning);
         return true;
@@ -301,7 +297,7 @@ bool maximizeEncryption(const Partition &p, OperationDetail &detail)
     Luks::loadCache();
     const LuksMapping m = Luks::mapping(p.path);
     if (m.isOpen() && m.offset + m.length > p.byteLength()) {
-        od.addChild(tr("the encryption mapping (%1) is larger than the partition (%2): refresh the devices")
+        od.addChild(QCoreApplication::translate("Steps", "the encryption mapping (%1) is larger than the partition (%2): refresh the devices")
                         .arg(formatBytes(m.offset + m.length), formatBytes(p.byteLength())),
                     OperationDetail::Status::Error, OperationDetail::Font::Italic);
         od.setStatus(OperationDetail::Status::Error);
@@ -315,8 +311,8 @@ bool maximizeEncryption(const Partition &p, OperationDetail &detail)
 bool shrinkEncryption(const Partition &o, const Partition &n, OperationDetail &detail)
 {
     if (!o.isOpenLuks())
-        return bug(detail, tr("partition does not contain open LUKS encryption for a shrink encryption only step"));
-    OperationDetail &od = detail.addChild(tr("shrink encryption volume"));
+        return bug(detail, QCoreApplication::translate("Steps", "partition does not contain open LUKS encryption for a shrink encryption only step"));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Steps", "shrink encryption volume"));
     // The new mapping must still hold the (already shrunk) file system and be smaller
     // than the current one.
     Luks::loadCache();
@@ -325,7 +321,7 @@ bool shrinkEncryption(const Partition &o, const Partition &n, OperationDetail &d
     const Partition &f = n.filesystem();
     const ByteValue fsBytes = f.usageKnown() ? (f.sectorsUsed + f.sectorsUnused) * f.sectorSize : f.byteLength();
     if (!m.isOpen() || newMapping < fsBytes || newMapping >= m.length) {
-        od.addChild(tr("the new encryption mapping size (%1) does not fit the file system (%2) or is not smaller "
+        od.addChild(QCoreApplication::translate("Steps", "the new encryption mapping size (%1) does not fit the file system (%2) or is not smaller "
                        "than the current one (%3)")
                         .arg(formatBytes(newMapping), formatBytes(fsBytes), formatBytes(m.length)),
                     OperationDetail::Status::Error, OperationDetail::Font::Italic);
@@ -342,11 +338,11 @@ bool resizeEncryption(const Partition &o, Partition &n, OperationDetail &detail)
     // Port of GParted's resize_encryption().
     const Sector delta = n.length() - o.length();
     if (!o.busy && delta < 0)
-        return bug(detail, tr("impossible to shrink a closed LUKS encryption volume"));
+        return bug(detail, QCoreApplication::translate("Steps", "impossible to shrink a closed LUKS encryption volume"));
     if (!o.busy)
         return Parted::resizeMovePartition(o, n, detail, true) && maximizeEncryption(n, detail);
     if (!o.isOpenLuks() || !n.isOpenLuks())
-        return bug(detail, tr("open LUKS encryption without the file system inside it"));
+        return bug(detail, QCoreApplication::translate("Steps", "open LUKS encryption without the file system inside it"));
 
     const Partition &fsOld = o.filesystem();
     const Partition &fsNew = n.filesystem();
@@ -403,12 +399,12 @@ bool copy(const Partition &src, Partition &dst, OperationDetail &detail)
 {
     // Never onto itself: the destination is erased before the copy.
     if (src.devicePath == dst.devicePath && src.start <= dst.end && dst.start <= src.end) {
-        detail.addChild(tr("the destination overlaps the source partition %1: nothing was changed").arg(src.path),
+        detail.addChild(QCoreApplication::translate("Steps", "the destination overlaps the source partition %1: nothing was changed").arg(src.path),
                         OperationDetail::Status::Error, OperationDetail::Font::Italic);
         return false;
     }
     if (dst.byteLength() < src.byteLength()) {
-        detail.addChild(tr("the destination is smaller than the source partition"), OperationDetail::Status::Error,
+        detail.addChild(QCoreApplication::translate("Steps", "the destination is smaller than the source partition"), OperationDetail::Status::Error,
                         OperationDetail::Font::Italic);
         return false;
     }
@@ -432,8 +428,8 @@ bool copy(const Partition &src, Partition &dst, OperationDetail &detail)
 bool labelFileSystem(const Partition &p, OperationDetail &detail)
 {
     OperationDetail &od = detail.addChild(
-        p.fsLabel.isEmpty() ? tr("Clear file system label on %1").arg(p.path)
-                            : tr("Set file system label to \"%1\" on %2").arg(p.fsLabel, p.path));
+        p.fsLabel.isEmpty() ? QCoreApplication::translate("Steps", "Clear file system label on %1").arg(p.path)
+                            : QCoreApplication::translate("Steps", "Set file system label to \"%1\" on %2").arg(p.fsLabel, p.path));
     const FileSystem *fs = fsOf(p);
     const bool allowed = fs && (p.busy ? fs->support().onlineWriteLabel : fs->support().writeLabel);
     const bool ok = allowed && fs->writeLabel(p, od);
@@ -443,7 +439,7 @@ bool labelFileSystem(const Partition &p, OperationDetail &detail)
 
 bool changeUuid(const Partition &p, OperationDetail &detail)
 {
-    OperationDetail &od = detail.addChild(tr("Set UUID on %1 to a new, random value").arg(p.path));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Steps", "Set UUID on %1 to a new, random value").arg(p.path));
     const FileSystem *fs = fsOf(p);
     const bool ok = fs && fs->writeUuid(p, od);
     od.setSuccessAndCaptureErrors(ok);

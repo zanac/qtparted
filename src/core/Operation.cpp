@@ -21,10 +21,6 @@
 
 namespace QtParted {
 
-static QString tr(const char *s)
-{
-    return QCoreApplication::translate("Operation", s);
-}
 
 Operation::Operation(OperationType type, const Device &device, const Partition &original,
                      const Partition &newPartition)
@@ -142,7 +138,7 @@ static bool verifyFileSystemTarget(Partition &p, OperationDetail &detail, bool o
 
 bool createFileSystem(const Partition &p, OperationDetail &detail)
 {
-    OperationDetail &od = detail.addChild(tr("create new %1 file system").arg(fsName(p.fsType)));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Operation", "create new %1 file system").arg(fsName(p.fsType)));
     const FileSystem *fs = FileSystemRegistry::instance().get(p.fsType);
     const bool ok = fs && fs->create(p, od);
     od.setSuccessAndCaptureErrors(ok);
@@ -164,7 +160,7 @@ OperationCreateTable::OperationCreateTable(const Device &device, const QString &
 
 void OperationCreateTable::createDescription()
 {
-    m_description = tr("Create %1 partition table on %2").arg(m_diskType, m_device.path);
+    m_description = QCoreApplication::translate("Operation", "Create %1 partition table on %2").arg(m_diskType, m_device.path);
 }
 
 void OperationCreateTable::applyToVisual(Device &device)
@@ -195,12 +191,12 @@ void OperationCreate::createDescription()
 {
     QString kind;
     switch (m_new.type) {
-    case PartitionType::Primary:  kind = tr("Primary Partition"); break;
-    case PartitionType::Logical:  kind = tr("Logical Partition"); break;
-    case PartitionType::Extended: kind = tr("Extended Partition"); break;
+    case PartitionType::Primary:  kind = QCoreApplication::translate("Operation", "Primary Partition"); break;
+    case PartitionType::Logical:  kind = QCoreApplication::translate("Operation", "Logical Partition"); break;
+    case PartitionType::Extended: kind = QCoreApplication::translate("Operation", "Extended Partition"); break;
     default: break;
     }
-    m_description = tr("Create %1 #%2 (%3, %4) on %5")
+    m_description = QCoreApplication::translate("Operation", "Create %1 #%2 (%3, %4) on %5")
                         .arg(kind)
                         .arg(m_new.number)
                         .arg(fsName(m_new.fsType), formatSize(m_new.length(), m_new.sectorSize), m_device.path);
@@ -278,8 +274,8 @@ OperationDelete::OperationDelete(const Device &device, const Partition &partitio
 
 void OperationDelete::createDescription()
 {
-    const QString what = m_original.type == PartitionType::Logical ? tr("Logical Partition") : m_original.path;
-    m_description = tr("Delete %1 (%2, %3) from %4")
+    const QString what = m_original.type == PartitionType::Logical ? QCoreApplication::translate("Operation", "Logical Partition") : m_original.path;
+    m_description = QCoreApplication::translate("Operation", "Delete %1 (%2, %3) from %4")
                         .arg(what, fsName(m_original.fsType),
                              formatSize(m_original.length(), m_original.sectorSize), m_original.devicePath);
 }
@@ -344,7 +340,7 @@ OperationFormat::OperationFormat(const Device &device, const Partition &original
 
 void OperationFormat::createDescription()
 {
-    m_description = tr("Format %1 as %2").arg(m_original.path, fsName(m_new.filesystem().fsType));
+    m_description = QCoreApplication::translate("Operation", "Format %1 as %2").arg(m_original.path, fsName(m_new.filesystem().fsType));
 }
 
 void OperationFormat::applyToVisual(Device &device)
@@ -398,9 +394,9 @@ OperationSetFlags::OperationSetFlags(const Device &device, const Partition &orig
 void OperationSetFlags::createDescription()
 {
     if (m_new.flags.isEmpty())
-        m_description = tr("Clear all flags on %1").arg(m_original.path);
+        m_description = QCoreApplication::translate("Operation", "Clear all flags on %1").arg(m_original.path);
     else
-        m_description = tr("Set flags on %1 to: %2").arg(m_original.path, m_new.flags.join(QStringLiteral(", ")));
+        m_description = QCoreApplication::translate("Operation", "Set flags on %1 to: %2").arg(m_original.path, m_new.flags.join(QStringLiteral(", ")));
 }
 
 void OperationSetFlags::applyToVisual(Device &device)
@@ -437,9 +433,9 @@ OperationName::OperationName(const Device &device, const Partition &original, co
 void OperationName::createDescription()
 {
     if (m_new.name.isEmpty())
-        m_description = tr("Clear partition name on %1").arg(m_original.path);
+        m_description = QCoreApplication::translate("Operation", "Clear partition name on %1").arg(m_original.path);
     else
-        m_description = tr("Set partition name \"%1\" on %2").arg(m_new.name, m_original.path);
+        m_description = QCoreApplication::translate("Operation", "Set partition name \"%1\" on %2").arg(m_new.name, m_original.path);
 }
 
 void OperationName::applyToVisual(Device &device)
@@ -478,17 +474,17 @@ void OperationResizeMove::createDescription()
     const bool right = m_new.start > m_original.start;
     const bool left = m_new.start < m_original.start;
     if (m_new.length() > m_original.length())
-        m_description = right ? tr("Move %1 to the right and grow it from %2 to %3").arg(path, from, to)
-                      : left  ? tr("Move %1 to the left and grow it from %2 to %3").arg(path, from, to)
-                              : tr("Grow %1 from %2 to %3").arg(path, from, to);
+        m_description = right ? QCoreApplication::translate("Operation", "Move %1 to the right and grow it from %2 to %3").arg(path, from, to)
+                      : left  ? QCoreApplication::translate("Operation", "Move %1 to the left and grow it from %2 to %3").arg(path, from, to)
+                              : QCoreApplication::translate("Operation", "Grow %1 from %2 to %3").arg(path, from, to);
     else if (m_new.length() < m_original.length())
-        m_description = right ? tr("Move %1 to the right and shrink it from %2 to %3").arg(path, from, to)
-                      : left  ? tr("Move %1 to the left and shrink it from %2 to %3").arg(path, from, to)
-                              : tr("Shrink %1 from %2 to %3").arg(path, from, to);
+        m_description = right ? QCoreApplication::translate("Operation", "Move %1 to the right and shrink it from %2 to %3").arg(path, from, to)
+                      : left  ? QCoreApplication::translate("Operation", "Move %1 to the left and shrink it from %2 to %3").arg(path, from, to)
+                              : QCoreApplication::translate("Operation", "Shrink %1 from %2 to %3").arg(path, from, to);
     else
-        m_description = right ? tr("Move %1 to the right").arg(path)
-                      : left  ? tr("Move %1 to the left").arg(path)
-                              : tr("resize/move %1 (new and old partition have the same size and position.  "
+        m_description = right ? QCoreApplication::translate("Operation", "Move %1 to the right").arg(path)
+                      : left  ? QCoreApplication::translate("Operation", "Move %1 to the left").arg(path)
+                              : QCoreApplication::translate("Operation", "resize/move %1 (new and old partition have the same size and position.  "
                                    "Hence continuing anyway)").arg(path);
 }
 
@@ -581,10 +577,10 @@ OperationCopy::OperationCopy(const Device &device, const Partition &original, co
 void OperationCopy::createDescription()
 {
     if (m_original.type == PartitionType::Unallocated)
-        m_description = tr("Copy %1 to %2 (start at %3)")
+        m_description = QCoreApplication::translate("Operation", "Copy %1 to %2 (start at %3)")
                             .arg(m_copied.path, m_device.path, formatSize(m_new.start, m_new.sectorSize));
     else
-        m_description = tr("Copy %1 to %2").arg(m_copied.path, m_original.path);
+        m_description = QCoreApplication::translate("Operation", "Copy %1 to %2").arg(m_copied.path, m_original.path);
 }
 
 void OperationCopy::applyToVisual(Device &device)
@@ -606,7 +602,7 @@ bool OperationCopy::execute(OperationDetail &detail)
     }
     // Never onto the source's own sectors (also when the source is inside encryption).
     if (m_copied.devicePath == m_new.devicePath && m_copied.start <= m_new.end && m_new.start <= m_copied.end) {
-        detail.addChild(tr("the destination overlaps the source partition %1: nothing was changed").arg(m_copied.path),
+        detail.addChild(QCoreApplication::translate("Operation", "the destination overlaps the source partition %1: nothing was changed").arg(m_copied.path),
                         OperationDetail::Status::Error, OperationDetail::Font::Italic);
         return false;
     }
@@ -623,7 +619,7 @@ OperationCheck::OperationCheck(const Device &device, const Partition &partition)
 
 void OperationCheck::createDescription()
 {
-    m_description = tr("Check and repair file system (%1) on %2").arg(fsName(m_original.filesystem().fsType), m_original.path);
+    m_description = QCoreApplication::translate("Operation", "Check and repair file system (%1) on %2").arg(fsName(m_original.filesystem().fsType), m_original.path);
 }
 
 bool OperationCheck::mergeWith(const Operation &candidate)
@@ -648,9 +644,9 @@ OperationLabel::OperationLabel(const Device &device, const Partition &original, 
 void OperationLabel::createDescription()
 {
     if (m_new.filesystem().fsLabel.isEmpty())
-        m_description = tr("Clear file system label on %1").arg(m_original.path);
+        m_description = QCoreApplication::translate("Operation", "Clear file system label on %1").arg(m_original.path);
     else
-        m_description = tr("Set file system label \"%1\" on %2").arg(m_new.filesystem().fsLabel, m_original.path);
+        m_description = QCoreApplication::translate("Operation", "Set file system label \"%1\" on %2").arg(m_new.filesystem().fsLabel, m_original.path);
 }
 
 void OperationLabel::applyToVisual(Device &device)
@@ -680,12 +676,12 @@ bool OperationLabel::execute(OperationDetail &detail)
 OperationChangeUuid::OperationChangeUuid(const Device &device, const Partition &original)
     : Operation(OperationType::ChangeUuid, device, original, original)
 {
-    m_new.filesystem().uuid = tr("(new random UUID)");
+    m_new.filesystem().uuid = QCoreApplication::translate("Operation", "(new random UUID)");
 }
 
 void OperationChangeUuid::createDescription()
 {
-    m_description = tr("Set a new random UUID on %1 file system on %2").arg(fsName(m_original.filesystem().fsType), m_original.path);
+    m_description = QCoreApplication::translate("Operation", "Set a new random UUID on %1 file system on %2").arg(fsName(m_original.filesystem().fsType), m_original.path);
 }
 
 void OperationChangeUuid::applyToVisual(Device &device)

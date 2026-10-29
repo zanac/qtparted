@@ -29,10 +29,6 @@
 
 namespace QtParted {
 
-static QString tr(const char *s)
-{
-    return QCoreApplication::translate("Luks", s);
-}
 
 namespace Luks {
 
@@ -149,7 +145,7 @@ bool close(const Partition &p, QString &error)
     loadCache();
     const LuksMapping m = mapping(p.path);
     if (!m.isOpen()) {
-        error = tr("%1 has no open encryption mapping").arg(p.path);
+        error = QCoreApplication::translate("Luks", "%1 has no open encryption mapping").arg(p.path);
         return false;
     }
     const QStringList args{ QStringLiteral("luksClose"), m.name };
@@ -181,7 +177,7 @@ bool resize(const Partition &p, bool fill, OperationDetail &detail)
     if (!m.isOpen()) {
         if (!fill)
             return false;  // a closed LUKS volume can't be shrunk
-        detail.addChild(tr("Maximize closed LUKS encryption skipped because it will automatically fill the "
+        detail.addChild(QCoreApplication::translate("Luks", "Maximize closed LUKS encryption skipped because it will automatically fill the "
                            "partition when opened"),
                         OperationDetail::Status::None, OperationDetail::Font::Italic);
         return true;

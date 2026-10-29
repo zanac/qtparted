@@ -73,9 +73,16 @@ int main(int argc, char **argv)
     if (qtTranslator.load(QLocale(), QStringLiteral("qtbase"), QStringLiteral("_"),
                           QLibraryInfo::path(QLibraryInfo::TranslationsPath)))
         QApplication::installTranslator(&qtTranslator);
+    // English first, for the plural forms of the source texts; the user's language
+    // (installed later, so it takes precedence) on top.  Translations are built into
+    // the program; a qtparted_<lang>.qm in the data directory can add or override one.
+    QTranslator english;
+    if (english.load(QStringLiteral(":/i18n/qtparted_en.qm")))
+        QApplication::installTranslator(&english);
     QTranslator translator;
     if (translator.load(QLocale(), QStringLiteral("qtparted"), QStringLiteral("_"),
-                        QStringLiteral(QTPARTED_DATADIR "/translations")))
+                        QStringLiteral(QTPARTED_DATADIR "/translations"))
+        || translator.load(QLocale(), QStringLiteral("qtparted"), QStringLiteral("_"), QStringLiteral(":/i18n")))
         QApplication::installTranslator(&translator);
 
     QCommandLineParser parser;

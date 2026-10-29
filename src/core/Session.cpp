@@ -22,10 +22,6 @@
 
 namespace QtParted {
 
-static QString tr(const char *s)
-{
-    return QCoreApplication::translate("Session", s);
-}
 
 int Session::deviceIndex(const QString &path) const
 {
@@ -54,13 +50,13 @@ bool Session::validPartition(const Device &device, const Partition &p, QString *
         return false;
     };
     if (p.start < 0)
-        return fail(tr("A partition cannot start (%1) before the start of the device").arg(p.start));
+        return fail(QCoreApplication::translate("Session", "A partition cannot start (%1) before the start of the device").arg(p.start));
     if (p.end >= device.length)
-        return fail(tr("A partition cannot end (%1) after the end of the device (%2)").arg(p.end).arg(device.length - 1));
+        return fail(QCoreApplication::translate("Session", "A partition cannot end (%1) after the end of the device (%2)").arg(p.end).arg(device.length - 1));
     if (p.length() <= 0)
-        return fail(tr("A partition cannot have a length of %1 sectors").arg(p.length()));
+        return fail(QCoreApplication::translate("Session", "A partition cannot have a length of %1 sectors").arg(p.length()));
     if (p.usageKnown() && p.length() < p.sectorsUsed)
-        return fail(tr("A partition with used sectors (%1) greater than its length (%2) is not valid")
+        return fail(QCoreApplication::translate("Session", "A partition with used sectors (%1) greater than its length (%2) is not valid")
                         .arg(p.sectorsUsed).arg(p.length()));
     return true;
 }

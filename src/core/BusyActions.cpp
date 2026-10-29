@@ -23,10 +23,6 @@ namespace BusyActions {
 
 namespace {
 
-QString tr(const char *s)
-{
-    return QCoreApplication::translate("BusyActions", s);
-}
 
 QString failed(const QString &program, const QStringList &args, const CommandResult &r)
 {
@@ -113,9 +109,9 @@ bool unmount(const Partition &p, QString &error)
     if (!ok)
         return false;
     if (!skipped.isEmpty()) {
-        error = tr("The partition could not be unmounted from the following mount points:") + QStringLiteral("\n\n")
+        error = QCoreApplication::translate("BusyActions", "The partition could not be unmounted from the following mount points:") + QStringLiteral("\n\n")
               + skipped.join(QLatin1Char('\n')) + QStringLiteral("\n\n")
-              + tr("This is because other partitions are also mounted on these mount points.  You are advised to "
+              + QCoreApplication::translate("BusyActions", "This is because other partitions are also mounted on these mount points.  You are advised to "
                    "unmount them manually.");
         return false;
     }
@@ -138,7 +134,7 @@ bool setVolumeGroupActive(const Partition &p, bool active, QString &error)
 {
     error.clear();
     if (p.mountPoints.isEmpty()) {
-        error = tr("%1 is not a member of a Volume Group").arg(p.path);
+        error = QCoreApplication::translate("BusyActions", "%1 is not a member of a Volume Group").arg(p.path);
         return false;
     }
     return run(QStringLiteral("lvm"),

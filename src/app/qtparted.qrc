@@ -5,4 +5,15 @@
         <file alias="icons/qtparted-32.png">../../data/icons/qtparted-32.png</file>
         <file alias="icons/qtparted-64.png">../../data/icons/qtparted-64.png</file>
     </qresource>
+    <qresource prefix="/manual">
+        <file alias="manual.md">../../doc/manual/manual.md</file>
+    </qresource>
+    <qresource prefix="/screenshots">
+        <file alias="main.png">../../doc/screenshots/main.png</file>
+        <file alias="new-partition.png">../../doc/screenshots/new-partition.png</file>
+        <file alias="resize-move.png">../../doc/screenshots/resize-move.png</file>
+        <file alias="luks-open.png">../../doc/screenshots/luks-open.png</file>
+        <file alias="apply.png">../../doc/screenshots/apply.png</file>
+        <file alias="file-system-support.png">../../doc/screenshots/file-system-support.png</file>
+    </qresource>
 </RCC>

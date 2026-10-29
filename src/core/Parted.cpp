@@ -48,10 +48,6 @@ namespace {
 QMutex g_prompterMutex;
 Prompter g_prompter;
 
-QString tr(const char *s)
-{
-    return QCoreApplication::translate("Parted", s);
-}
 
 PedExceptionOption exceptionHandler(PedException *e)
 {
@@ -193,12 +189,12 @@ PedPartition *findPartition(const PedDisk *disk, const Partition &p)
         expected = PED_PARTITION_EXTENDED;
     if (lp->type != expected || !ped_partition_is_active(lp)) {
         OperationDetail::pushLibpartedMessage(
-            tr("No %1 found at sector %2 of the partition table").arg(p.path).arg(p.middleSector()));
+            QCoreApplication::translate("Parted", "No %1 found at sector %2 of the partition table").arg(p.path).arg(p.middleSector()));
         return nullptr;
     }
     if (lp->geom.start != p.start || lp->geom.end != p.end) {
         OperationDetail::pushLibpartedMessage(
-            tr("The partition table changed: %1 was expected at sectors %2-%3 but sectors %4-%5 were found")
+            QCoreApplication::translate("Parted", "The partition table changed: %1 was expected at sectors %2-%3 but sectors %4-%5 were found")
                 .arg(p.path).arg(p.start).arg(p.end).arg(lp->geom.start).arg(lp->geom.end));
         return nullptr;
     }
@@ -207,10 +203,10 @@ PedPartition *findPartition(const PedDisk *disk, const Partition &p)
 
 QString geometryText(const Partition &p, bool device)
 {
-    return tr("path: %1 (%2)").arg(p.path, device ? tr("device") : tr("partition")) + QLatin1Char('\n')
-         + tr("start: %1").arg(p.start) + QLatin1Char('\n')
-         + tr("end: %1").arg(p.end) + QLatin1Char('\n')
-         + tr("size: %1 (%2)").arg(p.length()).arg(formatSize(p.length(), p.sectorSize));
+    return QCoreApplication::translate("Parted", "path: %1 (%2)").arg(p.path, device ? QCoreApplication::translate("Parted", "device") : QCoreApplication::translate("Parted", "partition")) + QLatin1Char('\n')
+         + QCoreApplication::translate("Parted", "start: %1").arg(p.start) + QLatin1Char('\n')
+         + QCoreApplication::translate("Parted", "end: %1").arg(p.end) + QLatin1Char('\n')
+         + QCoreApplication::translate("Parted", "size: %1 (%2)").arg(p.length()).arg(formatSize(p.length(), p.sectorSize));
 }
 
 void waitForPath(const QString &path)
@@ -237,7 +233,7 @@ void fillPartitionDetails(Partition &p, const Device &device, const SystemInfo &
         p.fsLabel = pr.label;
         p.uuid = pr.uuid;
         if (pr.ambivalent)
-            p.messages.append(tr("Several file system signatures were found; the content can not be identified safely."));
+            p.messages.append(QCoreApplication::translate("Parted", "Several file system signatures were found; the content can not be identified safely."));
     }
 
     if (nodeExists && p.fsType == FsType::Luks) {
@@ -266,7 +262,7 @@ void fillPartitionDetails(Partition &p, const Device &device, const SystemInfo &
         if (innerSector > 0 && innerSector != p.sectorSize) {
             // LUKS2 with larger encryption sectors: the mapping counts in other units.
             // Only closing it is offered (no encrypted partition is attached).
-            p.messages.append(tr("The encryption mapping %1 uses %2 byte sectors, the partition %3 byte sectors: "
+            p.messages.append(QCoreApplication::translate("Parted", "The encryption mapping %1 uses %2 byte sectors, the partition %3 byte sectors: "
                                  "the file system inside it can not be changed by QtParted.")
                                   .arg(in.path).arg(innerSector).arg(p.sectorSize));
             return;
@@ -274,7 +270,7 @@ void fillPartitionDetails(Partition &p, const Device &device, const SystemInfo &
         if (QFileInfo::exists(in.path)) {
             fillPartitionDetails(in, device, sys);
         } else {
-            in.messages.append(tr("The encryption mapping %1 has no device node.").arg(in.path));
+            in.messages.append(QCoreApplication::translate("Parted", "The encryption mapping %1 has no device node.").arg(in.path));
         }
         p.encrypted.emplace(in);
         return;
@@ -300,27 +296,27 @@ void fillPartitionDetails(Partition &p, const Device &device, const SystemInfo &
     }
 
     if (p.fsType == FsType::Unknown && p.type != PartitionType::Extended) {
-        p.messages.append(tr("Unable to detect file system! Possible reasons are:") + QLatin1String("\n- ")
-                          + tr("The file system is damaged") + QLatin1String("\n- ")
-                          + tr("The file system is unknown to QtParted") + QLatin1String("\n- ")
-                          + tr("There is no file system available (unformatted)") + QLatin1String("\n- ")
-                          + tr("The device entry %1 is missing").arg(p.path));
+        p.messages.append(QCoreApplication::translate("Parted", "Unable to detect file system! Possible reasons are:") + QLatin1String("\n- ")
+                          + QCoreApplication::translate("Parted", "The file system is damaged") + QLatin1String("\n- ")
+                          + QCoreApplication::translate("Parted", "The file system is unknown to QtParted") + QLatin1String("\n- ")
+                          + QCoreApplication::translate("Parted", "There is no file system available (unformatted)") + QLatin1String("\n- ")
+                          + QCoreApplication::translate("Parted", "The device entry %1 is missing").arg(p.path));
     }
 
     if (nodeExists && fsIsReal(p.fsType)) {
         FileSystemRegistry::instance().readUsage(p);
         const FileSystem *fs = FileSystemRegistry::instance().get(p.fsType);
         if (!p.usageKnown() && fs) {
-            QString m = tr("Unable to read the contents of this file system!") + QLatin1Char('\n')
-                      + tr("Because of this some operations may be unavailable.");
+            QString m = QCoreApplication::translate("Parted", "Unable to read the contents of this file system!") + QLatin1Char('\n')
+                      + QCoreApplication::translate("Parted", "Because of this some operations may be unavailable.");
             if (!fs->software().isEmpty())
                 m += QLatin1Char('\n')
-                   + tr("The following software is required for %1 file system support: %2.")
+                   + QCoreApplication::translate("Parted", "The following software is required for %1 file system support: %2.")
                          .arg(fsName(p.fsType), fs->software());
             p.messages.append(m);
         } else if (p.usageKnown() && p.sectorsUnallocated > 0
                    && p.sectorsUnallocated * p.sectorSize >= 2 * MiB) {
-            p.messages.append(tr("%1 of unallocated space within the partition.")
+            p.messages.append(QCoreApplication::translate("Parted", "%1 of unallocated space within the partition.")
                                   .arg(formatSize(p.sectorsUnallocated, p.sectorSize)));
         }
     }
@@ -369,14 +365,14 @@ void readPartitions(Device &device, PedDisk *disk, const SystemInfo &sys)
             const FsType t = fsTypeFromLibparted(lp->fs_type->name);
             if (t != FsType::Unknown) {
                 p.fsType = t;
-                const QString unknown = tr("Unable to detect file system! Possible reasons are:");
+                const QString unknown = QCoreApplication::translate("Parted", "Unable to detect file system! Possible reasons are:");
                 p.messages.erase(std::remove_if(p.messages.begin(), p.messages.end(),
                                                 [&](const QString &m) { return m.startsWith(unknown); }),
                                  p.messages.end());
             }
         }
         if (p.type == PartitionType::Logical && p.isFlagSet(QStringLiteral("esp")))
-            p.messages.append(tr("UEFI firmware does not support booting from a logical EFI System Partition (ESP)"));
+            p.messages.append(QCoreApplication::translate("Parted", "UEFI firmware does not support booting from a logical EFI System Partition (ESP)"));
         p.messages += OperationDetail::takeLibpartedMessages();
 
         if (p.busy && p.number > device.highestBusy)
@@ -434,13 +430,13 @@ QList<QPair<int, QString>> exceptionOptions(int options)
 QString exceptionTypeName(int type)
 {
     switch (type) {
-    case PED_EXCEPTION_INFORMATION: return tr("Libparted Information");
-    case PED_EXCEPTION_WARNING:     return tr("Libparted Warning");
-    case PED_EXCEPTION_ERROR:       return tr("Libparted Error");
-    case PED_EXCEPTION_FATAL:       return tr("Libparted Fatal");
-    case PED_EXCEPTION_BUG:         return tr("Libparted Bug");
-    case PED_EXCEPTION_NO_FEATURE:  return tr("Libparted Unsupported Feature");
-    default:                        return tr("Libparted unknown exception");
+    case PED_EXCEPTION_INFORMATION: return QCoreApplication::translate("Parted", "Libparted Information");
+    case PED_EXCEPTION_WARNING:     return QCoreApplication::translate("Parted", "Libparted Warning");
+    case PED_EXCEPTION_ERROR:       return QCoreApplication::translate("Parted", "Libparted Error");
+    case PED_EXCEPTION_FATAL:       return QCoreApplication::translate("Parted", "Libparted Fatal");
+    case PED_EXCEPTION_BUG:         return QCoreApplication::translate("Parted", "Libparted Bug");
+    case PED_EXCEPTION_NO_FEATURE:  return QCoreApplication::translate("Parted", "Libparted Unsupported Feature");
+    default:                        return QCoreApplication::translate("Parted", "Libparted unknown exception");
     }
 }
 
@@ -546,14 +542,14 @@ std::optional<Device> readDevice(const QString &path, const SystemInfo &sys)
     // 2/4: no partition table recognised
     const PedDiskType *probed = ped_disk_probe(dev.dev);
     if (!probed) {
-        device.diskType = tr("unrecognized");
+        device.diskType = QCoreApplication::translate("Parted", "unrecognized");
         device.maxPrimaries = 1;
         Partition p = Partition::makeUnpartitioned(path, QString(), FsType::Unallocated, device.length,
                                                    device.sectorSize, wholeDiskBusy());
         p.messages += OperationDetail::takeLibpartedMessages();
         if (p.busy) {
             device.highestBusy = 1;
-            p.messages.append(tr("The device is in use."));
+            p.messages.append(QCoreApplication::translate("Parted", "The device is in use."));
         }
         device.partitions.push_back(p);
         return device;
@@ -561,14 +557,14 @@ std::optional<Device> readDevice(const QString &path, const SystemInfo &sys)
 
     DiskRef disk(dev.dev);
     if (!disk) {
-        device.diskType = tr("unrecognized");
+        device.diskType = QCoreApplication::translate("Parted", "unrecognized");
         device.maxPrimaries = 1;
         Partition p = Partition::makeUnpartitioned(path, QString(), FsType::Unallocated, device.length,
                                                    device.sectorSize, wholeDiskBusy());
         p.messages += OperationDetail::takeLibpartedMessages();
         if (p.busy) {
             device.highestBusy = 1;
-            p.messages.append(tr("The device is in use."));
+            p.messages.append(QCoreApplication::translate("Parted", "The device is in use."));
         }
         device.partitions.push_back(p);
         return device;
@@ -582,10 +578,10 @@ std::optional<Device> readDevice(const QString &path, const SystemInfo &sys)
                                                    wholeDiskBusy());
         if (p.busy)
             device.highestBusy = 1;
-        p.messages.append(tr("Unable to detect file system! Possible reasons are:") + QLatin1String("\n- ")
-                          + tr("The file system is damaged") + QLatin1String("\n- ")
-                          + tr("The file system is unknown to QtParted") + QLatin1String("\n- ")
-                          + tr("There is no file system available (unformatted)"));
+        p.messages.append(QCoreApplication::translate("Parted", "Unable to detect file system! Possible reasons are:") + QLatin1String("\n- ")
+                          + QCoreApplication::translate("Parted", "The file system is damaged") + QLatin1String("\n- ")
+                          + QCoreApplication::translate("Parted", "The file system is unknown to QtParted") + QLatin1String("\n- ")
+                          + QCoreApplication::translate("Parted", "There is no file system available (unformatted)"));
         device.partitions.push_back(p);
         OperationDetail::takeLibpartedMessages();
         return device;
@@ -613,7 +609,7 @@ std::optional<Device> readDevice(const QString &path, const SystemInfo &sys)
         markBusy(device.partitions);
         device.readonly = true;
         device.highestBusy = std::max(device.highestBusy, 1);
-        device.messages.append(tr("%1 is used as a whole by another device (device-mapper, RAID).").arg(path));
+        device.messages.append(QCoreApplication::translate("Parted", "%1 is used as a whole by another device (device-mapper, RAID).").arg(path));
         return device;
     }
 
@@ -641,7 +637,7 @@ bool createDiskLabel(const Device &device, const QString &diskType, OperationDet
     // Wipe any whole disk file system so neither libparted nor blkid prefer it to the new table.
     Partition whole = Partition::makeUnpartitioned(device.path, device.path, FsType::Unknown, device.length,
                                                    device.sectorSize, false);
-    OperationDetail &od = detail.addChild(tr("create new %1 partition table on %2").arg(diskType, device.path));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Parted", "create new %1 partition table on %2").arg(diskType, device.path));
     if (!eraseSignatures(whole, od)) {
         od.setSuccessAndCaptureErrors(false);
         return false;
@@ -662,7 +658,7 @@ bool calibrate(Partition &p, OperationDetail &detail)
     if (!p.isPartitionInTable() && p.type != PartitionType::Unpartitioned)
         return true;
 
-    OperationDetail &od = detail.addChild(tr("calibrate %1").arg(p.path));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Parted", "calibrate %1").arg(p.path));
     bool ok = false;
     DeviceRef dev(p.devicePath);
     if (dev) {
@@ -704,8 +700,8 @@ static QString sysfsValue(const QString &devPath, const QString &attribute)
 
 bool verifyTarget(const Partition &p, bool checkKernelGeometry, OperationDetail &detail, bool expectInUse)
 {
-    OperationDetail &od = detail.addChild(expectInUse ? tr("check the position of %1").arg(p.path)
-                                                      : tr("check that %1 is not in use").arg(p.path));
+    OperationDetail &od = detail.addChild(expectInUse ? QCoreApplication::translate("Parted", "check the position of %1").arg(p.path)
+                                                      : QCoreApplication::translate("Parted", "check that %1 is not in use").arg(p.path));
     // Open LUKS encryption is in use even when nothing else holds the partition.
     bool inUse = SystemInfo::isInUse(p.path);
     if (!inUse && p.fsType == FsType::Luks) {
@@ -715,14 +711,14 @@ bool verifyTarget(const Partition &p, bool checkKernelGeometry, OperationDetail 
     if (expectInUse && p.type != PartitionType::Extended && !inUse) {
         // Queued as an online change: the file system tools would act on whatever is
         // mounted at the old mount point now.
-        od.addChild(tr("%1 is no longer in use, but the operation was queued for a mounted file system. "
+        od.addChild(QCoreApplication::translate("Parted", "%1 is no longer in use, but the operation was queued for a mounted file system. "
                        "Refresh the devices and queue it again. Nothing was changed on it.").arg(p.path),
                     OperationDetail::Status::None, OperationDetail::Font::Italic);
         od.setStatus(OperationDetail::Status::Error);
         return false;
     }
     if (!expectInUse && inUse) {
-        od.addChild(tr("%1 is in use (mounted, active swap, or used by another device). "
+        od.addChild(QCoreApplication::translate("Parted", "%1 is in use (mounted, active swap, or used by another device). "
                        "Nothing was changed on it.").arg(p.path),
                     OperationDetail::Status::None, OperationDetail::Font::Italic);
         od.setStatus(OperationDetail::Status::Error);
@@ -738,7 +734,7 @@ bool verifyTarget(const Partition &p, bool checkKernelGeometry, OperationDetail 
         // the EBR chain), so only its start can be compared.
         const bool sizeDiffers = p.type != PartitionType::Extended && size != p.length() * factor;
         if (okStart && okSize && (start != p.start * factor || sizeDiffers)) {
-            od.addChild(tr("The kernel sees %1 at a different position than the partition table "
+            od.addChild(QCoreApplication::translate("Parted", "The kernel sees %1 at a different position than the partition table "
                            "(kernel: start %2, size %3; table: start %4, size %5, in 512 byte units). "
                            "Refresh the devices or reboot before changing it.")
                             .arg(p.path).arg(start).arg(size).arg(p.start * factor).arg(p.length() * factor),
@@ -755,11 +751,11 @@ bool verifyFollowingLogicalsUnused(const Partition &p, OperationDetail &detail)
 {
     if (p.type != PartitionType::Logical)
         return true;
-    OperationDetail &od = detail.addChild(tr("check that the logical partitions after %1 are not in use").arg(p.path));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Parted", "check that the logical partitions after %1 are not in use").arg(p.path));
     for (const QString &part : SystemInfo::kernelPartitions(p.devicePath)) {
         const int number = sysfsValue(part, QStringLiteral("partition")).toInt();
         if (number > p.number && SystemInfo::isInUse(part)) {
-            od.addChild(tr("%1 is in use and would be renumbered. Unmount it first.").arg(part),
+            od.addChild(QCoreApplication::translate("Parted", "%1 is in use and would be renumbered. Unmount it first.").arg(part),
                         OperationDetail::Status::None, OperationDetail::Font::Italic);
             od.setStatus(OperationDetail::Status::Error);
             return false;
@@ -771,7 +767,7 @@ bool verifyFollowingLogicalsUnused(const Partition &p, OperationDetail &detail)
 
 bool verifyDiskUnused(const Device &device, OperationDetail &detail)
 {
-    OperationDetail &od = detail.addChild(tr("check that no partition of %1 is in use").arg(device.path));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Parted", "check that no partition of %1 is in use").arg(device.path));
     QStringList busy;
     if (!device.isImageFile && SystemInfo::hasHolders(device.path))
         busy.append(device.path);
@@ -779,7 +775,7 @@ bool verifyDiskUnused(const Device &device, OperationDetail &detail)
         if (SystemInfo::isInUse(part))
             busy.append(part);
     if (!busy.isEmpty()) {
-        od.addChild(tr("In use: %1. Nothing was changed.").arg(busy.join(QStringLiteral(", "))),
+        od.addChild(QCoreApplication::translate("Parted", "In use: %1. Nothing was changed.").arg(busy.join(QStringLiteral(", "))),
                     OperationDetail::Status::None, OperationDetail::Font::Italic);
         od.setStatus(OperationDetail::Status::Error);
         return false;
@@ -790,7 +786,7 @@ bool verifyDiskUnused(const Device &device, OperationDetail &detail)
 
 bool createPartition(Partition &p, Sector minSize, OperationDetail &detail)
 {
-    OperationDetail &od = detail.addChild(tr("create empty partition"));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Parted", "create empty partition"));
     bool ok = false;
     DeviceRef dev(p.devicePath);
     if (dev) {
@@ -845,7 +841,7 @@ bool createPartition(Partition &p, Sector minSize, OperationDetail &detail)
 
 bool deletePartition(const Partition &p, OperationDetail &detail)
 {
-    OperationDetail &od = detail.addChild(tr("delete partition"));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Parted", "delete partition"));
     bool ok = false;
     DeviceRef dev(p.devicePath);
     if (dev) {
@@ -861,8 +857,8 @@ bool deletePartition(const Partition &p, OperationDetail &detail)
 
 static bool setFlagStep(PedPartition *lp, PedPartitionFlag flag, bool state, OperationDetail &od)
 {
-    OperationDetail &c = od.addChild(state ? tr("new partition flag: %1").arg(QString::fromLatin1(ped_partition_flag_get_name(flag)))
-                                           : tr("clear partition flag: %1").arg(QString::fromLatin1(ped_partition_flag_get_name(flag))));
+    OperationDetail &c = od.addChild(state ? QCoreApplication::translate("Parted", "new partition flag: %1").arg(QString::fromLatin1(ped_partition_flag_get_name(flag)))
+                                           : QCoreApplication::translate("Parted", "clear partition flag: %1").arg(QString::fromLatin1(ped_partition_flag_get_name(flag))));
     const bool ok = ped_partition_set_flag(lp, flag, state ? 1 : 0);
     c.setSuccessAndCaptureErrors(ok);
     return ok;
@@ -873,7 +869,7 @@ bool setPartitionType(const Partition &p, OperationDetail &detail)
     if (p.type == PartitionType::Unpartitioned)
         return true;  // nothing to do on a whole disk device
 
-    OperationDetail &od = detail.addChild(tr("set partition type on %1").arg(p.path));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Parted", "set partition type on %1").arg(p.path));
     DeviceRef dev(p.devicePath);
     if (!dev) {
         od.setSuccessAndCaptureErrors(false);
@@ -905,7 +901,7 @@ bool setPartitionType(const Partition &p, OperationDetail &detail)
         if (!fsType)
             fsType = ped_file_system_type_get("ext2");  // Linux (83)
         if (fsType) {
-            OperationDetail &c = od.addChild(tr("new partition type: %1").arg(QString::fromLatin1(fsType->name)));
+            OperationDetail &c = od.addChild(QCoreApplication::translate("Parted", "new partition type: %1").arg(QString::fromLatin1(fsType->name)));
             ok = true;
             // Clear libparted flags so they don't override the type implied by the file system.
             for (PedPartitionFlag f : allFlags())
@@ -924,7 +920,7 @@ bool setPartitionType(const Partition &p, OperationDetail &detail)
 
 bool setFlags(const Partition &p, const QStringList &from, const QStringList &to, OperationDetail &detail)
 {
-    OperationDetail &od = detail.addChild(tr("set partition flags on %1").arg(p.path));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Parted", "set partition flags on %1").arg(p.path));
     DeviceRef dev(p.devicePath);
     DiskRef disk(dev ? dev.dev : nullptr);
     PedPartition *lp = disk ? findPartition(disk.disk, p) : nullptr;
@@ -980,8 +976,8 @@ QStringList readFlags(const Partition &p)
 bool setName(const Partition &p, OperationDetail &detail)
 {
     OperationDetail &od = detail.addChild(p.name.isEmpty()
-                                              ? tr("Clear partition name on %1").arg(p.path)
-                                              : tr("Set partition name to \"%1\" on %2").arg(p.name, p.path));
+                                              ? QCoreApplication::translate("Parted", "Clear partition name on %1").arg(p.path)
+                                              : QCoreApplication::translate("Parted", "Set partition name to \"%1\" on %2").arg(p.name, p.path));
     bool ok = false;
     DeviceRef dev(p.devicePath);
     if (dev) {
@@ -997,7 +993,7 @@ bool setName(const Partition &p, OperationDetail &detail)
 
 bool eraseSignatures(const Partition &p, OperationDetail &detail)
 {
-    OperationDetail &od = detail.addChild(tr("clear old file system signatures in %1").arg(p.path));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Parted", "clear old file system signatures in %1").arg(p.path));
 
     DeviceRef dev(p.devicePath);
     if (!dev) {
@@ -1062,7 +1058,7 @@ bool eraseSignatures(const Partition &p, OperationDetail &detail)
         if (offset == prevOffset && len == prevLen)
             continue;
 
-        OperationDetail &c = od.addChild(tr("write %1 of zeros at byte offset %2").arg(formatBytes(len)).arg(offset));
+        OperationDetail &c = od.addChild(QCoreApplication::translate("Parted", "write %1 of zeros at byte offset %2").arg(formatBytes(len)).arg(offset));
         ByteValue written = 0;
         bool zeroOk = true;
         while (written < len) {
@@ -1082,7 +1078,7 @@ bool eraseSignatures(const Partition &p, OperationDetail &detail)
 
     // The kernel doesn't keep whole disk and partition caches coherent: flush.
     if (ok) {
-        OperationDetail &c = od.addChild(tr("flush operating system cache of %1").arg(QString::fromLocal8Bit(dev.dev->path)));
+        OperationDetail &c = od.addChild(QCoreApplication::translate("Parted", "flush operating system cache of %1").arg(QString::fromLocal8Bit(dev.dev->path)));
         const bool synced = ped_device_sync(dev.dev);
         c.setSuccessAndCaptureErrors(synced);
         ok = synced;
@@ -1106,25 +1102,25 @@ static QString resizeDescription(const Partition &o, const Partition &n)
     const bool right = n.start > o.start && n.end > o.end;
     const bool left = n.start < o.start && n.end < o.end;
     if (right)
-        return grow ? tr("move partition to the right and grow it from %1 to %2").arg(from, to)
-             : shrink ? tr("move partition to the right and shrink it from %1 to %2").arg(from, to)
-                      : tr("move partition to the right");
+        return grow ? QCoreApplication::translate("Parted", "move partition to the right and grow it from %1 to %2").arg(from, to)
+             : shrink ? QCoreApplication::translate("Parted", "move partition to the right and shrink it from %1 to %2").arg(from, to)
+                      : QCoreApplication::translate("Parted", "move partition to the right");
     if (left)
-        return grow ? tr("move partition to the left and grow it from %1 to %2").arg(from, to)
-             : shrink ? tr("move partition to the left and shrink it from %1 to %2").arg(from, to)
-                      : tr("move partition to the left");
+        return grow ? QCoreApplication::translate("Parted", "move partition to the left and grow it from %1 to %2").arg(from, to)
+             : shrink ? QCoreApplication::translate("Parted", "move partition to the left and shrink it from %1 to %2").arg(from, to)
+                      : QCoreApplication::translate("Parted", "move partition to the left");
     if (grow)
-        return tr("grow partition from %1 to %2").arg(from, to);
+        return QCoreApplication::translate("Parted", "grow partition from %1 to %2").arg(from, to);
     if (shrink)
-        return tr("shrink partition from %1 to %2").arg(from, to);
-    return tr("resize/move partition");
+        return QCoreApplication::translate("Parted", "shrink partition from %1 to %2").arg(from, to);
+    return QCoreApplication::translate("Parted", "resize/move partition");
 }
 
 static QString boundsText(const char *startLabel, const char *endLabel, const char *sizeLabel, Sector start,
                           Sector end, ByteValue sectorSize)
 {
-    return tr(startLabel).arg(start) + QLatin1Char('\n') + tr(endLabel).arg(end) + QLatin1Char('\n')
-         + tr(sizeLabel).arg(end - start + 1).arg(formatSize(end - start + 1, sectorSize));
+    return QCoreApplication::translate("Parted", startLabel).arg(start) + QLatin1Char('\n') + QCoreApplication::translate("Parted", endLabel).arg(end) + QLatin1Char('\n')
+         + QCoreApplication::translate("Parted", sizeLabel).arg(end - start + 1).arg(formatSize(end - start + 1, sectorSize));
 }
 
 // Change the geometry of the partition found by `lookup` (strict match, or any active
@@ -1171,7 +1167,7 @@ bool resizeMovePartition(const Partition &o, Partition &n, OperationDetail &deta
 
     OperationDetail &od = detail.addChild(resizeDescription(o, n));
     if (o.start == n.start && o.end == n.end) {
-        od.addChild(tr("new and old partition have the same size and position.  Hence skipping this operation"),
+        od.addChild(QCoreApplication::translate("Parted", "new and old partition have the same size and position.  Hence skipping this operation"),
                     OperationDetail::Status::None, OperationDetail::Font::Italic);
         od.setSuccessAndCaptureErrors(true);
         return true;
@@ -1195,7 +1191,7 @@ bool resizeMovePartition(const Partition &o, Partition &n, OperationDetail &deta
     if (!ok && rollbackOnFail) {
         // The failed change may or may not have reached the disk: find the partition
         // by the middle of the old/new intersection and put the old geometry back.
-        OperationDetail &rb = detail.addChild(tr("attempt to rollback failed change to the partition"));
+        OperationDetail &rb = detail.addChild(QCoreApplication::translate("Parted", "attempt to rollback failed change to the partition"));
         Partition intersection = n;
         intersection.start = std::max(o.start, n.start);
         intersection.end = std::min(o.end, n.end);
@@ -1211,7 +1207,7 @@ bool resizeMovePartition(const Partition &o, Partition &n, OperationDetail &deta
 
 bool calculateExactGeometry(const Partition &o, Partition &n, OperationDetail &detail)
 {
-    OperationDetail &od = detail.addChild(tr("calculate new size and position of %1").arg(n.path));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Parted", "calculate new size and position of %1").arg(n.path));
     od.addChild(boundsText("requested start: %1", "requested end: %1", "requested size: %1 (%2)", n.start, n.end,
                            n.sectorSize),
                 OperationDetail::Status::None, OperationDetail::Font::Italic);
@@ -1240,7 +1236,7 @@ bool calculateExactGeometry(const Partition &o, Partition &n, OperationDetail &d
 
 bool libpartedFsResize(const Partition &o, const Partition &n, OperationDetail &detail)
 {
-    detail.addChild(tr("using libparted"), OperationDetail::Status::None);
+    detail.addChild(QCoreApplication::translate("Parted", "using libparted"), OperationDetail::Status::None);
     bool ok = false;
     DeviceRef dev(o.devicePath);
     if (!dev)
@@ -1288,8 +1284,8 @@ bool copyBlocks(const QString &srcDevice, const QString &dstDevice, Sector srcSt
                 ByteValue length, OperationDetail &detail, ByteValue &done)
 {
     done = 0;
-    detail.addChild(tr("using internal algorithm"), OperationDetail::Status::None);
-    OperationDetail &od = detail.addChild(tr("copy %1").arg(formatBytes(length)));
+    detail.addChild(QCoreApplication::translate("Parted", "using internal algorithm"), OperationDetail::Status::None);
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Parted", "copy %1").arg(formatBytes(length)));
 
     DeviceRef src(srcDevice);
     std::unique_ptr<DeviceRef> dstOwner;
@@ -1306,7 +1302,7 @@ bool copyBlocks(const QString &srcDevice, const QString &dstDevice, Sector srcSt
     }
     const ByteValue sectorSize = src.dev->sector_size;
     if (dst->sector_size != sectorSize || length % sectorSize != 0) {
-        od.addChild(tr("Copying between devices with different sector sizes is not supported"),
+        od.addChild(QCoreApplication::translate("Parted", "Copying between devices with different sector sizes is not supported"),
                     OperationDetail::Status::Error);
         return false;
     }
@@ -1339,16 +1335,16 @@ bool copyBlocks(const QString &srcDevice, const QString &dstDevice, Sector srcSt
         const ByteValue offset = backwards ? length - done - chunk : done;
         const Sector count = chunk / sectorSize;
         if (!ped_device_read(src.dev, buffer.get(), srcStart + offset / sectorSize, count)) {
-            error = tr("Error while reading block at sector %1").arg(srcStart + offset / sectorSize);
+            error = QCoreApplication::translate("Parted", "Error while reading block at sector %1").arg(srcStart + offset / sectorSize);
             ok = false;
         } else if (!ped_device_write(dst, buffer.get(), dstStart + offset / sectorSize, count)) {
-            error = tr("Error while writing block at sector %1").arg(dstStart + offset / sectorSize);
+            error = QCoreApplication::translate("Parted", "Error while writing block at sector %1").arg(dstStart + offset / sectorSize);
             ok = false;
         } else {
             done += chunk;
         }
         if (tick.elapsed() > 500 || done == length || !ok) {
-            progress.setDescription(tr("%1 of %2 copied").arg(formatBytes(done), formatBytes(length)));
+            progress.setDescription(QCoreApplication::translate("Parted", "%1 of %2 copied").arg(formatBytes(done), formatBytes(length)));
             tick.restart();
         }
     }
@@ -1359,7 +1355,7 @@ bool copyBlocks(const QString &srcDevice, const QString &dstDevice, Sector srcSt
         ped_device_close(dst);
     ped_device_close(src.dev);
     settle();
-    detail.addChild(tr("%1 (%2 B) copied").arg(formatBytes(done)).arg(done), OperationDetail::Status::None);
+    detail.addChild(QCoreApplication::translate("Parted", "%1 (%2 B) copied").arg(formatBytes(done)).arg(done), OperationDetail::Status::None);
     od.setSuccessAndCaptureErrors(ok);
     return ok;
 }
@@ -1370,9 +1366,9 @@ bool updateBootSector(const Partition &p, OperationDetail &detail)
         return true;
     // Windows only boots when the NTFS boot sector's "hidden sectors" (offset 0x1C)
     // matches the partition start.
-    OperationDetail &od = detail.addChild(tr("update boot sector of %1 file system on %2").arg(fsName(p.fsType), p.path));
+    OperationDetail &od = detail.addChild(QCoreApplication::translate("Parted", "update boot sector of %1 file system on %2").arg(fsName(p.fsType), p.path));
     if ((p.start >> 32) != 0) {
-        od.addChild(tr("Partition start (%1) is beyond sector 4294967295 (2^32-1).\n"
+        od.addChild(QCoreApplication::translate("Parted", "Partition start (%1) is beyond sector 4294967295 (2^32-1).\n"
                        "Windows will not be able to boot from this file system.").arg(p.start),
                     OperationDetail::Status::None, OperationDetail::Font::Italic);
         od.setStatus(OperationDetail::Status::Warning);
@@ -1384,7 +1380,7 @@ bool updateBootSector(const Partition &p, OperationDetail &detail)
     if (fd >= 0)
         ::close(fd);
     if (!ok)
-        od.addChild(tr("Error trying to write to boot sector in %1").arg(p.path), OperationDetail::Status::None,
+        od.addChild(QCoreApplication::translate("Parted", "Error trying to write to boot sector in %1").arg(p.path), OperationDetail::Status::None,
                     OperationDetail::Font::Italic);
     od.setSuccessAndCaptureErrors(ok);
     return ok;

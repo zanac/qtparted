@@ -146,6 +146,7 @@ private:
     QAction *m_actName = nullptr;
     QAction *m_actFlags = nullptr;
     QAction *m_actInfo = nullptr;
+    QAction *m_actManual = nullptr;
     QAction *m_actAbout = nullptr;
     QAction *m_actAboutQt = nullptr;
     QMenu *m_formatMenu = nullptr;

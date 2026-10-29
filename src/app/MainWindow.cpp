@@ -16,6 +16,7 @@
 #include "DialogCreateTable.h"
 #include "DialogFlags.h"
 #include "DialogFsSupport.h"
+#include "DialogManual.h"
 #include "DialogName.h"
 #include "DialogNewPartition.h"
 #include "BusyActions.h"
@@ -185,6 +186,13 @@ void MainWindow::createActions()
     m_actInfo->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Return));
     connect(m_actInfo, &QAction::triggered, this, &MainWindow::actionInfo);
 
+    m_actManual = new QAction(Ui::icon("help-contents", QStyle::SP_DialogHelpButton), tr("&Contents"), this);
+    m_actManual->setShortcut(QKeySequence::HelpContents);
+    connect(m_actManual, &QAction::triggered, this, [this]() {
+        DialogManual dialog(this);
+        dialog.exec();
+    });
+
     m_actAbout = new QAction(QIcon(QStringLiteral(":/icons/qtparted-64.png")), tr("&About QtParted"), this);
     connect(m_actAbout, &QAction::triggered, this, &MainWindow::actionAbout);
     m_actAboutQt = new QAction(tr("About &Qt"), this);
@@ -251,6 +259,8 @@ void MainWindow::createMenus()
     m_partitionMenu->addAction(m_actInfo);
 
     QMenu *help = menuBar()->addMenu(tr("&Help"));
+    help->addAction(m_actManual);
+    help->addSeparator();
     help->addAction(m_actAbout);
     help->addAction(m_actAboutQt);
 }
