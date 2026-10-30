@@ -60,6 +60,12 @@
     <binary>qtparted</binary>
   </provides>
   <releases>
+    <release version="1.0.2" date="2026-10-30" type="stable">
+      <url>https://github.com/zanac/qtparted/releases/tag/v1.0.2</url>
+      <description>
+        <p>Changing the UUID of a previously mounted ext4 file system works again; partitions are probed only after udev has settled.</p>
+      </description>
+    </release>
     <release version="1.0.1" date="2026-10-29" type="stable">
       <url>https://github.com/zanac/qtparted/releases/tag/v1.0.1</url>
       <description>

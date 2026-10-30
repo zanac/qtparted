@@ -1,6 +1,6 @@
 # Maintainer: Vanni Brutto <zanac4ever@gmail.com>
 pkgname=qtparted
-pkgver=1.0.1
+pkgver=1.0.2
 pkgrel=1
 pkgdesc="Partition editor for Qt 6 based on libparted"
 arch=('x86_64' 'aarch64')

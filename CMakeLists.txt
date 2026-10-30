@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.19)
 
 project(QtParted
-    VERSION 1.0.1
+    VERSION 1.0.2
     DESCRIPTION "Partition editor for Qt 6 based on libparted"
     HOMEPAGE_URL "https://github.com/zanac/qtparted"
     LANGUAGES CXX)

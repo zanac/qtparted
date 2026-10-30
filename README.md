@@ -207,7 +207,7 @@ ISO 9660, RAID members, bcache and others.
 has the source tarball and a .deb for Ubuntu 24.04 / Debian testing (amd64):
 
 ```sh
-sudo apt install ./qtparted_1.0.1_amd64.deb
+sudo apt install ./qtparted_1.0.2_amd64.deb
 ```
 
 For other distributions, build from source (below) or use the files in
@@ -340,7 +340,7 @@ system tools work inside it. The LUKS headers and passphrases stay real.
 | F3 | LUKS open/close and resize, LVM Volume Group activation, swapon/swapoff, mount/unmount | done |
 | F4 | Translations (Italian), built-in manual, packages (.deb, PKGBUILD, spec), CI | done |
 
-QtParted 1.0.0 was released on 29 October 2026, followed the same day by 1.0.1 (repaired icons, four more languages). Next: more translations, and testing on real hardware with
+QtParted 1.0.0 was released on 29 October 2026, followed the same day by 1.0.1 (repaired icons, four more languages) and on 30 October by 1.0.2 (ext4 UUID change fix). Next: more translations, and testing on real hardware with
 LUKS and LVM: the development container has no device-mapper, so those paths were
 exercised with the fakecrypt double and, on CI, with the real kernel.
 

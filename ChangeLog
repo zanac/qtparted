@@ -1,6 +1,6 @@
 ChangeLog for QtParted:
 -----------------------
-* Unreleased
+* 1.0.2 (2026-10-30)
   - Changing the UUID of an ext4 file system with metadata_csum no longer
     fails after it has been mounted: it is checked first, as tune2fs requires
   - Partitions are probed after udev has finished re-reading the disk, and
