@@ -8,7 +8,7 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install dependencies
         run: |
@@ -34,18 +34,18 @@ jobs:
         run: ctest --test-dir build --output-on-failure -R model
 
       - name: Disk tests (image files and loop devices, as root)
-        run: sudo ./build/tests/tst_disk
+        run: scripts/ci-test.sh sudo ./build/tests/tst_disk
 
       - name: Resize, move and copy tests (as root)
-        run: sudo ./build/tests/tst_f2
+        run: scripts/ci-test.sh sudo ./build/tests/tst_f2
 
       - name: LUKS, mount and swap tests (as root)
-        run: sudo ./build/tests/tst_f3
+        run: scripts/ci-test.sh sudo ./build/tests/tst_f3
 
       - name: Debian package
         run: cd build && cpack -G DEB
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: qtparted-deb
           path: build/qtparted_*.deb

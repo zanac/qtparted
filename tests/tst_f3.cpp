@@ -27,6 +27,7 @@
 #include <QFile>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QThread>
 
 #include <sys/sysmacros.h>
 #include <unistd.h>
@@ -468,6 +469,8 @@ void TestF3::openLuksCheckLabelUuidFormat()
     QVERIFY(openLuks());
     const QString mapper = QStringLiteral("/dev/mapper/") + Luks::mappingNameFor(part(1));
     QVERIFY(run(QStringLiteral("mkfs.ext4"), { QStringLiteral("-q"), mapper }));
+    // Mounted a second after mkfs: tune2fs -U then wants a fresh check (metadata_csum).
+    QThread::msleep(1100);
     const QByteArray hash = writeData(mapper, 10);
     Session s;
     s.devices = { scanOne(m_loop) };

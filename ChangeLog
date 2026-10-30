@@ -1,5 +1,12 @@
 ChangeLog for QtParted:
 -----------------------
+* Unreleased
+  - Changing the UUID of an ext4 file system with metadata_csum no longer
+    fails after it has been mounted: it is checked first, as tune2fs requires
+  - Partitions are probed after udev has finished re-reading the disk, and
+    LUKS open/close waits for udev: no more transient "unknown" file systems
+  - CI: test failures reported as annotations
+
 * 1.0.1 (2026-10-29)
   - Application icons repaired: the PNG files inherited from 0.6.0 had been
     damaged by a text-mode (CRLF) conversion and could not be displayed

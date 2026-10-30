@@ -83,6 +83,25 @@ bool run(const QString &program, const QStringList &args, OperationDetail &d)
 
 // --- ext2/3/4 ----------------------------------------------------------------------
 
+bool extWriteUuid(const Partition &p, OperationDetail &d)
+{
+    // With metadata_csum and no metadata_csum_seed every checksum is rewritten, and
+    // tune2fs refuses unless the file system was checked after its last mount: check it
+    // first, as tune2fs asks.
+    const CommandResult info = runCommand(QStringLiteral("tune2fs"), { QStringLiteral("-l"), p.path });
+    static const QRegularExpression features(QStringLiteral("^Filesystem features:\\s*(.*)$"),
+                                             QRegularExpression::MultilineOption);
+    const QStringList list = features.match(info.output).captured(1).split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    if (list.contains(QLatin1String("metadata_csum")) && !list.contains(QLatin1String("metadata_csum_seed"))) {
+        const CommandResult r = runCommand(QStringLiteral("e2fsck"),
+                                           { QStringLiteral("-f"), QStringLiteral("-y"), QStringLiteral("-v"),
+                                             QStringLiteral("-C"), QStringLiteral("0"), p.path }, &d);
+        if (!r.started || r.exitCode > 2)  // 1 and 2: errors corrected
+            return false;
+    }
+    return run(QStringLiteral("tune2fs"), { QStringLiteral("-U"), QStringLiteral("random"), p.path }, d);
+}
+
 bool extResize(const Partition &p, OperationDetail &d, bool fill)
 {
     QStringList args{ QStringLiteral("-p") };
@@ -195,9 +214,7 @@ void FileSystemRegistry::addResizeAndMaintenance()
         };
         d->labelPrograms = { QStringLiteral("e2label") };
         d->onlineLabel = true;
-        d->writeUuid = [](const Partition &p, OperationDetail &od) {
-            return run(QStringLiteral("tune2fs"), { QStringLiteral("-U"), QStringLiteral("random"), p.path }, od);
-        };
+        d->writeUuid = extWriteUuid;
         d->uuidPrograms = { QStringLiteral("tune2fs") };
         d->moveNeedsCheck = true;
     }
